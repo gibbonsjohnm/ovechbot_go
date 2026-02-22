@@ -1,0 +1,36 @@
+services:
+  redis:
+    image: redis/redis-stack:7.2.0-v10
+    ports:
+      - "6379:6379"
+      - "8001:8001"  # Redis Insight UI
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  ingestor:
+    build:
+      context: ./ingestor
+      dockerfile: Dockerfile
+    environment:
+      REDIS_ADDR: redis:6379
+      POLL_INTERVAL: 60s
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  announcer:
+    build:
+      context: ./announcer
+      dockerfile: Dockerfile
+    environment:
+      REDIS_ADDR: redis:6379
+      # Discord (set via .env or -e; do not commit tokens)
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      DISCORD_ANNOUNCE_CHANNEL_ID: ${DISCORD_ANNOUNCE_CHANNEL_ID:-}
+      DISCORD_GUILD_ID: ${DISCORD_GUILD_ID:-}
+    depends_on:
+      redis:
+        condition: service_healthy
