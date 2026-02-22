@@ -23,7 +23,7 @@ Distributed Go application using a **Producer-Consumer (Ingestor/Announcer)** pa
 docker compose up --build
 ```
 
-- **Redis Stack**: `localhost:6379` (Redis), `localhost:8001` (Redis Insight UI for observability).
+- **Redis Stack**: `localhost:6380` (Redis; 6379 avoided if you have another instance), `localhost:8002` (Redis Insight UI).
 - **Ingestor**: polls every 60s by default; set `POLL_INTERVAL` to change (e.g. `30s`).
 - **Announcer**: reads from the stream; if Discord is configured, posts goal announcements to a channel and responds to slash commands.
 
@@ -56,11 +56,7 @@ You can push a fake “goal increased” event into the stream and watch the Ann
 ./scripts/inject-test-goal.sh
 ```
 
-Then check the Announcer container logs; you should see a structured log line like `"goal notification"` with `goals: 999`. To inject manually with redis-cli:
-
-```bash
-docker compose exec redis redis-cli XADD ovechkin:goals '*' payload '{"player_id":8471214,"goals":999,"recorded_at":"2025-02-22T12:00:00Z"}' goals 999
-```
+Then check the Announcer container logs. To inject manually: `docker compose exec redis redis-cli XADD ovechkin:goals '*' payload '{"player_id":8471214,"goals":999,"recorded_at":"2025-02-22T12:00:00Z"}' goals 999`
 
 ## Run locally (without Docker)
 
@@ -75,7 +71,7 @@ go run ./ingestor/cmd/ingestor
 go run ./announcer/cmd/announcer
 ```
 
-Env (optional): `REDIS_ADDR` (default `redis:6379`; use `localhost:6379` for local Redis), `POLL_INTERVAL` (ingestor only, default `60s`). For Discord: `DISCORD_BOT_TOKEN`, `DISCORD_ANNOUNCE_CHANNEL_ID`, `DISCORD_GUILD_ID`, `DISCORD_OVECHKIN_IMAGE_URL` (see table above).
+Env (optional): `REDIS_ADDR` (default `redis:6379` in compose), `POLL_INTERVAL` (ingestor only, default `60s`). For Discord: `DISCORD_BOT_TOKEN`, `DISCORD_ANNOUNCE_CHANNEL_ID`, `DISCORD_GUILD_ID`, `DISCORD_OVECHKIN_IMAGE_URL` (see table above).
 
 ## Graceful shutdown
 
