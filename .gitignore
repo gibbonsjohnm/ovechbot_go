@@ -23,3 +23,6 @@ go.work.sum
 # OS
 .DS_Store
 Thumbs.db
+
+# Secrets (Docker Compose reads .env from project root)
+.env
