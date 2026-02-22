@@ -16,9 +16,12 @@ const (
 
 // GoalEvent is the payload emitted when the goal count increases.
 type GoalEvent struct {
-	PlayerID   int       `json:"player_id"`
-	Goals      int       `json:"goals"`
-	RecordedAt time.Time `json:"recorded_at"`
+	PlayerID     int       `json:"player_id"`
+	Goals        int       `json:"goals"`
+	RecordedAt   time.Time `json:"recorded_at"`
+	Opponent     string    `json:"opponent,omitempty"`      // e.g. "NSH"
+	OpponentName string    `json:"opponent_name,omitempty"` // e.g. "Predators"
+	GoalieName   string    `json:"goalie_name,omitempty"` // goalie scored on
 }
 
 // Producer writes goal events to a Redis stream.

@@ -229,6 +229,77 @@ func TestLastGoalGame_FromLanding(t *testing.T) {
 	}
 }
 
+func TestNextCapitalsGame_Future(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "club-schedule-season") {
+			t.Logf("unexpected path: %s", r.URL.Path)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"games":[{"gameDate":"2026-02-25","startTimeUTC":"2026-02-25T00:30:00Z","gameState":"FUT","venue":"Capital One Arena","homeTeam":{"abbrev":"WSH"},"awayTeam":{"abbrev":"PHI"}}]}`))
+	}))
+	defer server.Close()
+
+	client := &Client{
+		httpClient: &http.Client{
+			Transport: &roundTripperFunc{fn: func(req *http.Request) (*http.Response, error) {
+				req.URL.Host = server.Listener.Addr().String()
+				req.URL.Scheme = "http"
+				return http.DefaultTransport.RoundTrip(req)
+			}},
+		},
+	}
+	ctx := context.Background()
+	game, err := client.NextCapitalsGame(ctx)
+	if err != nil {
+		t.Fatalf("NextCapitalsGame: %v", err)
+	}
+	if game == nil {
+		t.Fatal("expected game")
+	}
+	if game.HomeAbbrev != "WSH" || game.AwayAbbrev != "PHI" || game.GameState != "FUT" {
+		t.Errorf("game = %+v", game)
+	}
+	if game.Venue != "Capital One Arena" || game.GameDate != "2026-02-25" {
+		t.Errorf("game = %+v", game)
+	}
+}
+
+func TestNextCapitalsGame_InProgressPreferred(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "club-schedule-season") {
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// LIVE game first in list; FUT later. Should return LIVE.
+		_, _ = w.Write([]byte(`{"games":[{"gameDate":"2026-02-22","startTimeUTC":"2026-02-22T00:00:00Z","gameState":"LIVE","venue":"Wells Fargo Center","homeTeam":{"abbrev":"PHI"},"awayTeam":{"abbrev":"WSH"}},{"gameDate":"2026-02-25","startTimeUTC":"2026-02-25T00:30:00Z","gameState":"FUT","venue":"Capital One Arena","homeTeam":{"abbrev":"WSH"},"awayTeam":{"abbrev":"PHI"}}]}`))
+	}))
+	defer server.Close()
+
+	client := &Client{
+		httpClient: &http.Client{
+			Transport: &roundTripperFunc{fn: func(req *http.Request) (*http.Response, error) {
+				req.URL.Host = server.Listener.Addr().String()
+				req.URL.Scheme = "http"
+				return http.DefaultTransport.RoundTrip(req)
+			}},
+		},
+	}
+	ctx := context.Background()
+	game, err := client.NextCapitalsGame(ctx)
+	if err != nil {
+		t.Fatalf("NextCapitalsGame: %v", err)
+	}
+	if game == nil {
+		t.Fatal("expected game")
+	}
+	if game.GameState != "LIVE" || game.AwayAbbrev != "WSH" || game.HomeAbbrev != "PHI" {
+		t.Errorf("expected LIVE WSH @ PHI, got %+v", game)
+	}
+}
+
 func TestNewClient(t *testing.T) {
 	c := NewClient()
 	if c == nil || c.httpClient == nil {

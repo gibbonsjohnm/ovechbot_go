@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -16,6 +17,10 @@ import (
 	"ovechbot_go/announcer/internal/discord"
 	"ovechbot_go/announcer/internal/nhl"
 )
+
+// lastAnnouncedGoal is the most recent goal event we posted to Discord (used by /lastgoal to avoid NHL API when current).
+var lastAnnouncedMu sync.Mutex
+var lastAnnouncedGoal *consumer.GoalEvent
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -74,6 +79,24 @@ func main() {
 				})
 			case "lastgoal":
 				deferRespond(s, i, func() string {
+					careerGoals, err := nhlClient.CareerGoals(context.Background())
+					if err != nil {
+						return "❌ Could not fetch goal total: " + err.Error()
+					}
+					lastAnnouncedMu.Lock()
+					cached := lastAnnouncedGoal
+					lastAnnouncedMu.Unlock()
+					if cached != nil && cached.Goals == careerGoals {
+						oppName := cached.OpponentName
+						if oppName == "" {
+							oppName = cached.Opponent
+						}
+						msg := fmt.Sprintf("📅 **Last goal:** #%d · %s vs **%s** (%s)", cached.Goals, cached.RecordedAt.Format("Jan 2, 2006"), oppName, cached.Opponent)
+						if cached.GoalieName != "" {
+							msg += fmt.Sprintf("\n🧤 Opposing goalie: **%s**", cached.GoalieName)
+						}
+						return msg + "\n_(from stream)_"
+					}
 					info, err := nhlClient.LastGoalGame(context.Background())
 					if err != nil {
 						return "❌ Could not fetch last goal: " + err.Error()
@@ -83,6 +106,26 @@ func main() {
 						msg += fmt.Sprintf("\n🧤 Opposing goalie: **%s**", info.GoalieName)
 					}
 					return msg
+				})
+			case "nextgame":
+				deferRespond(s, i, func() string {
+					game, err := nhlClient.NextCapitalsGame(context.Background())
+					if err != nil {
+						return "❌ Could not fetch schedule: " + err.Error()
+					}
+					if game == nil {
+						return "📅 No upcoming Capitals game in the schedule (season may be over or not started)."
+					}
+					et, err := time.LoadLocation("America/New_York")
+					if err != nil {
+						et = time.FixedZone("ET", -5*3600) // EST fallback when tzdata missing (e.g. Docker)
+					}
+					startET := game.StartTimeUTC.In(et)
+					when := startET.Format("Mon Jan 2, 3:04 PM ET")
+					if nhl.InProgressGameStates[game.GameState] {
+						return fmt.Sprintf("🏒 **Capitals are playing now:** %s @ **%s**\n📍 %s · %s", game.AwayAbbrev, game.HomeAbbrev, game.Venue, when)
+					}
+					return fmt.Sprintf("📅 **Next game:** %s @ **%s**\n📍 %s · %s", game.AwayAbbrev, game.HomeAbbrev, game.Venue, when)
 				})
 			}
 		})
@@ -129,10 +172,15 @@ func main() {
 					"message", fmt.Sprintf("Alex Ovechkin has scored! Career goals: %d", e.Goals),
 				)
 				if bot != nil && bot.Session() != nil {
-					if err := bot.PostGoalAnnouncement(ctx, e.Goals, e.RecordedAt); err != nil {
+					if err := bot.PostGoalAnnouncement(ctx, e.Goals, e.RecordedAt, e.GoalieName, e.OpponentName); err != nil {
 						slog.Warn("discord post failed", "error", err)
 					}
 				}
+				// Cache for /lastgoal so we can answer from stream data when still current
+				dup := e
+				lastAnnouncedMu.Lock()
+				lastAnnouncedGoal = &dup
+				lastAnnouncedMu.Unlock()
 			}
 			if len(ids) > 0 {
 				if err := c.Ack(ctx, ids...); err != nil {

@@ -41,8 +41,11 @@ To post goal announcements to a Discord server and enable slash commands, set th
 **Slash commands** (chatters can use these in any channel the bot can see):
 
 - **`/goals`** – Alex Ovechkin’s career goal total (regular season), live from the NHL API.
-- **`/lastgoal`** – Date, opponent, and opposing goalie for his most recent goal (from last 5 games).
+- **`/lastgoal`** – Date, opponent, and opposing goalie for his most recent goal. When the last goal we announced is still the current total, the reply is served from the **stream cache** (same data we posted); otherwise it fetches from the NHL API (last 5 games + boxscore).
+- **`/nextgame`** – Next (or current) Washington Capitals game: opponent, venue, and start time (Eastern). Uses the NHL club schedule season API.
 - **`/ping`** – Check if the bot is online.
+
+**Possible future commands:** `/gap` (goals behind Gretzky’s 894), `/milestone` (next round number and how many away), `/last5` (goals in each of last 5 games from landing API).
 
 The bot’s status shows **Watching HOME vs AWAY** (e.g. `Watching WSH vs PHI`) when a live Capitals game is on (polled from NHL schedule); otherwise **Nothing :(**.
 

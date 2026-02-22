@@ -18,9 +18,12 @@ const (
 
 // GoalEvent matches the payload emitted by the Ingestor.
 type GoalEvent struct {
-	PlayerID   int       `json:"player_id"`
-	Goals      int       `json:"goals"`
-	RecordedAt time.Time `json:"recorded_at"`
+	PlayerID     int       `json:"player_id"`
+	Goals        int       `json:"goals"`
+	RecordedAt   time.Time `json:"recorded_at"`
+	Opponent     string    `json:"opponent,omitempty"`
+	OpponentName string    `json:"opponent_name,omitempty"`
+	GoalieName   string    `json:"goalie_name,omitempty"`
 }
 
 // Consumer reads from the Redis stream via consumer group.

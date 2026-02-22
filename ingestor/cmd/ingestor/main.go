@@ -59,6 +59,11 @@ func main() {
 			}
 			if goals > lastGoals {
 				evt := stream.GoalEvent{PlayerID: nhl.OvechkinPlayerID, Goals: goals}
+				if info, err := nhlClient.LastGoalGameInfo(ctx); err == nil && info != nil {
+					evt.Opponent = info.Opponent
+					evt.OpponentName = info.OpponentName
+					evt.GoalieName = info.GoalieName
+				}
 				id, err := producer.EmitGoalEvent(ctx, evt)
 				if err != nil {
 					slog.Error("emit goal event failed", "error", err, "goals", goals)

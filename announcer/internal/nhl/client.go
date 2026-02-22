@@ -10,12 +10,38 @@ import (
 )
 
 const (
-	OvechkinPlayerID = 8471214
-	CapitalsAbbrev   = "WSH"
-	LandingURLFmt    = "https://api-web.nhle.com/v1/player/%d/landing"
-	BoxscoreURLFmt   = "https://api-web.nhle.com/v1/gamecenter/%d/boxscore"
-	ScheduleNowURL   = "https://api-web.nhle.com/v1/schedule/now"
+	OvechkinPlayerID    = 8471214
+	CapitalsAbbrev      = "WSH"
+	LandingURLFmt       = "https://api-web.nhle.com/v1/player/%d/landing"
+	BoxscoreURLFmt      = "https://api-web.nhle.com/v1/gamecenter/%d/boxscore"
+	ScheduleNowURL      = "https://api-web.nhle.com/v1/schedule/now"
+	ClubScheduleSeason  = "https://api-web.nhle.com/v1/club-schedule-season/" + CapitalsAbbrev + "/now"
 )
+
+// venueJSON unmarshals venue from either a string or an object {"default": "Venue Name"}.
+type venueJSON string
+
+func (v *venueJSON) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+	if data[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		*v = venueJSON(s)
+		return nil
+	}
+	var o struct {
+		Default string `json:"default"`
+	}
+	if err := json.Unmarshal(data, &o); err != nil {
+		return err
+	}
+	*v = venueJSON(o.Default)
+	return nil
+}
 
 // Client fetches NHL API data for Ovechkin (goals, last goal game).
 type Client struct {
@@ -116,6 +142,72 @@ func (c *Client) CurrentCapitalsGame(ctx context.Context) (*CurrentCapitalsGame,
 		}
 	}
 	return nil, nil
+}
+
+// NextCapitalsGame holds the next (or current) Capitals game from the season schedule.
+type NextCapitalsGame struct {
+	HomeAbbrev   string    // e.g. "WSH"
+	AwayAbbrev   string    // e.g. "PHI"
+	StartTimeUTC time.Time // when the game starts or started
+	GameState    string    // e.g. "FUT", "LIVE", "PRE", "CRIT", "FINAL"
+	GameDate     string    // e.g. "2026-02-23"
+	Venue        string    // e.g. "Capital One Arena"
+}
+
+// NextCapitalsGame fetches the Capitals season schedule and returns the next game (or the one on now).
+// Returns nil if no upcoming/in-progress game is found (e.g. season over or schedule empty).
+func (c *Client) NextCapitalsGame(ctx context.Context) (*NextCapitalsGame, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ClubScheduleSeason, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("club schedule api status %d", resp.StatusCode)
+	}
+	var sched struct {
+		Games []struct {
+			GameDate     string    `json:"gameDate"`
+			StartTimeUTC string    `json:"startTimeUTC"`
+			GameState    string    `json:"gameState"`
+			Venue        venueJSON `json:"venue"`
+			HomeTeam     struct{ Abbrev string `json:"abbrev"` } `json:"homeTeam"`
+			AwayTeam     struct{ Abbrev string `json:"abbrev"` } `json:"awayTeam"`
+		} `json:"games"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&sched); err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	var inProgress, firstFuture *NextCapitalsGame
+	for _, g := range sched.Games {
+		start, _ := time.Parse(time.RFC3339, g.StartTimeUTC)
+		n := &NextCapitalsGame{
+			HomeAbbrev:   g.HomeTeam.Abbrev,
+			AwayAbbrev:   g.AwayTeam.Abbrev,
+			StartTimeUTC: start,
+			GameState:    g.GameState,
+			GameDate:     g.GameDate,
+			Venue:        string(g.Venue),
+		}
+		if InProgressGameStates[g.GameState] {
+			if inProgress == nil {
+				inProgress = n
+			}
+		}
+		if g.GameState == "FUT" && !start.Before(now) && firstFuture == nil {
+			firstFuture = n
+		}
+	}
+	if inProgress != nil {
+		return inProgress, nil
+	}
+	return firstFuture, nil
 }
 
 // LastGoalGame holds info about the most recent game in which Ovechkin scored.

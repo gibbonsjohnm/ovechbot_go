@@ -57,7 +57,20 @@ func NewBot(cfg Config) (*Bot, error) {
 
 // GoalAnnouncementDescription returns the embed description text for a goal announcement (testable).
 func GoalAnnouncementDescription(goals int) string {
-	return fmt.Sprintf("**Alex Ovechkin** has scored!\n\n🥅 **Career goals (regular season): %d**", goals)
+	return GoalAnnouncementDescriptionWithEnrichment(goals, "", "")
+}
+
+// GoalAnnouncementDescriptionWithEnrichment returns the description including goalie/opponent when provided.
+func GoalAnnouncementDescriptionWithEnrichment(goals int, goalieName, opponentName string) string {
+	base := fmt.Sprintf("**Alex Ovechkin** has scored!\n\n🥅 **Career goals (regular season): %d**", goals)
+	if goalieName != "" {
+		if opponentName != "" {
+			base += fmt.Sprintf("\n\nScored on **%s** (vs %s)", goalieName, opponentName)
+		} else {
+			base += fmt.Sprintf("\n\nScored on **%s**", goalieName)
+		}
+	}
+	return base
 }
 
 // StatusNameForGame returns the "Watching" activity name: "HOME vs AWAY" or "Nothing :(" when no live Capitals game (testable).
@@ -69,7 +82,8 @@ func StatusNameForGame(homeAbbrev, awayAbbrev string) string {
 }
 
 // PostGoalAnnouncement sends a rich embed to the announce channel when Ovechkin scores.
-func (b *Bot) PostGoalAnnouncement(ctx context.Context, goals int, recordedAt time.Time) error {
+// goalieName and opponentName are optional enrichment (e.g. "Igor Shesterkin", "Rangers").
+func (b *Bot) PostGoalAnnouncement(ctx context.Context, goals int, recordedAt time.Time, goalieName, opponentName string) error {
 	if b.channelID == "" {
 		return nil
 	}
@@ -81,7 +95,7 @@ func (b *Bot) PostGoalAnnouncement(ctx context.Context, goals int, recordedAt ti
 	}
 	embed := &discordgo.MessageEmbed{
 		Title:       "🚨 GOAL! 🚨",
-		Description: GoalAnnouncementDescription(goals),
+		Description: GoalAnnouncementDescriptionWithEnrichment(goals, goalieName, opponentName),
 		Color:       embedColor,
 		Thumbnail:   &discordgo.MessageEmbedThumbnail{URL: b.imageURL},
 		Timestamp:   recordedAt.Format(time.RFC3339),
@@ -115,6 +129,10 @@ func (b *Bot) RegisterSlashCommands(guildID string) ([]*discordgo.ApplicationCom
 		{
 			Name:        "ping",
 			Description: "Ping the bot to check if it's online",
+		},
+		{
+			Name:        "nextgame",
+			Description: "Next (or current) Washington Capitals game",
 		},
 	}
 	var registered []*discordgo.ApplicationCommand
