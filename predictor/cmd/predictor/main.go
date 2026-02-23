@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -20,12 +21,14 @@ import (
 )
 
 const (
-	checkInterval     = 10 * time.Minute
-	reminderWindow    = 55 * time.Minute // send reminder when game is in 55-65 min
-	reminderWindowEnd = 65 * time.Minute
-	oddsFetchWindow   = 36 * time.Hour   // only call Odds API when game is within 36h (saves credits)
-	oddsCacheTTL      = 12 * time.Hour   // cache odds per game_id so we don't refetch every tick
-	oddsCacheKeyPrefix = "ovechkin:odds:"
+	checkInterval       = 10 * time.Minute
+	reminderWindow      = 55 * time.Minute // send reminder when game is in 55-65 min
+	reminderWindowEnd   = 65 * time.Minute
+	oddsFetchWindow     = 36 * time.Hour   // only call Odds API when game is within 36h (saves credits)
+	oddsCacheTTL        = 12 * time.Hour   // cache odds per game_id so we don't refetch every tick
+	oddsCacheKeyPrefix  = "ovechkin:odds:"
+	calibrationLogKey   = "ovechkin:calibration:log"
+	calibrationMinGames = 10
 )
 
 func main() {
@@ -131,6 +134,34 @@ func main() {
 			}
 		}
 
+		// Blend with market implied probability when odds available (85% model, 15% market).
+		if oddsAmerican != "" {
+			if implied, ok := odds.ImpliedPctFromAmerican(oddsAmerican); ok && implied > 0 {
+				blended := int(0.85*float64(pct) + 0.15*float64(implied) + 0.5)
+				if blended < 15 {
+					blended = 15
+				}
+				if blended > 75 {
+					blended = 75
+				}
+				slog.Info("prediction blended with market", "model_pct", pct, "implied_pct", implied, "final_pct", blended)
+				pct = blended
+			}
+		}
+
+		// Apply calibration scale from evaluator history (hit rate vs mean predicted prob).
+		if scale := calibrationScale(ctx, rdb); scale != 1.0 {
+			calibrated := int(float64(pct)*scale + 0.5)
+			if calibrated < 15 {
+				calibrated = 15
+			}
+			if calibrated > 75 {
+				calibrated = 75
+			}
+			slog.Info("prediction calibrated", "before", pct, "scale", scale, "after", calibrated)
+			pct = calibrated
+		}
+
 		if err := producer.WriteNextPrediction(ctx, g, pct, oddsAmerican, goalieName); err != nil {
 			slog.Warn("write next prediction failed", "error", err)
 		} else {
@@ -168,6 +199,40 @@ func main() {
 			// loop
 		}
 	}
+}
+
+// calibrationScale reads evaluator history from Redis and returns scale = hit_rate / mean_predicted_prob (capped 0.8–1.2). Returns 1.0 if not enough data.
+func calibrationScale(ctx context.Context, rdb *redis.Client) float64 {
+	entries, err := rdb.LRange(ctx, calibrationLogKey, 0, 99).Result()
+	if err != nil || len(entries) < calibrationMinGames {
+		return 1.0
+	}
+	var sumScored int
+	var sumPredProb float64
+	for _, s := range entries {
+		var e struct {
+			PredPct int `json:"pred_pct"`
+			Scored  int `json:"scored"`
+		}
+		if json.Unmarshal([]byte(s), &e) != nil {
+			continue
+		}
+		sumScored += e.Scored
+		sumPredProb += float64(e.PredPct) / 100
+	}
+	if sumPredProb <= 0 {
+		return 1.0
+	}
+	hitRate := float64(sumScored) / float64(len(entries))
+	meanPred := sumPredProb / float64(len(entries))
+	scale := hitRate / meanPred
+	if scale < 0.8 {
+		scale = 0.8
+	}
+	if scale > 1.2 {
+		scale = 1.2
+	}
+	return scale
 }
 
 func getEnv(key, defaultVal string) string {

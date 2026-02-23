@@ -78,19 +78,23 @@ func (c *Client) GameLog(ctx context.Context, seasonID string) ([]GameLogEntry, 
 }
 
 // StandingsTeam is per-team stats for opponent strength and form.
-// Full-season: GA/GP, GF/GP, goal diff; L10 (last 10 games) for recent form; pointPctg for overall strength.
+// Full-season: GA/GP, GF/GP, goal diff; home/road split for venue-specific GA; L10 for recent form; pointPctg for strength.
 type StandingsTeam struct {
-	TeamAbbrev        string  `json:"teamAbbrev"`
-	GamesPlayed       int     `json:"gamesPlayed"`
-	GoalAgainst       int     `json:"goalAgainst"`
-	GoalsFor          int     `json:"goalFor"`
-	GoalDifferential  int     `json:"goalDifferential"`
-	GoalDifferentialPctg float64 `json:"goalDifferentialPctg"` // (GF-GA)/GP
-	GoalsForPctg      float64 `json:"goalsForPctg"`           // GF/GP
-	PointPctg         float64 `json:"pointPctg"`              // points percentage (0–1 scale in API)
-	L10GamesPlayed    int     `json:"l10GamesPlayed"`
-	L10GoalsAgainst   int     `json:"l10GoalsAgainst"`
-	L10GoalsFor       int     `json:"l10GoalsFor"`
+	TeamAbbrev           string  `json:"teamAbbrev"`
+	GamesPlayed          int     `json:"gamesPlayed"`
+	GoalAgainst          int     `json:"goalAgainst"`
+	GoalsFor             int     `json:"goalFor"`
+	GoalDifferential     int     `json:"goalDifferential"`
+	GoalDifferentialPctg float64 `json:"goalDifferentialPctg"`
+	GoalsForPctg         float64 `json:"goalsForPctg"`
+	PointPctg            float64 `json:"pointPctg"`
+	HomeGamesPlayed      int     `json:"homeGamesPlayed"`
+	HomeGoalsAgainst     int     `json:"homeGoalsAgainst"`
+	RoadGamesPlayed      int     `json:"roadGamesPlayed"`
+	RoadGoalsAgainst     int     `json:"roadGoalsAgainst"`
+	L10GamesPlayed       int     `json:"l10GamesPlayed"`
+	L10GoalsAgainst      int     `json:"l10GoalsAgainst"`
+	L10GoalsFor          int     `json:"l10GoalsFor"`
 }
 
 // teamAbbrevFrom extracts abbrev from API (can be string or object with default).
@@ -131,6 +135,10 @@ func (c *Client) Standings(ctx context.Context) (map[string]StandingsTeam, error
 			GoalDifferentialPctg float64    `json:"goalDifferentialPctg"`
 			GoalsForPctg         float64    `json:"goalsForPctg"`
 			PointPctg            float64    `json:"pointPctg"`
+			HomeGamesPlayed      int         `json:"homeGamesPlayed"`
+			HomeGoalsAgainst     int         `json:"homeGoalsAgainst"`
+			RoadGamesPlayed      int         `json:"roadGamesPlayed"`
+			RoadGoalsAgainst     int         `json:"roadGoalsAgainst"`
 			L10GamesPlayed       int         `json:"l10GamesPlayed"`
 			L10GoalsAgainst      int         `json:"l10GoalsAgainst"`
 			L10GoalsFor          int         `json:"l10GoalsFor"`
@@ -154,6 +162,10 @@ func (c *Client) Standings(ctx context.Context) (map[string]StandingsTeam, error
 			GoalDifferentialPctg: t.GoalDifferentialPctg,
 			GoalsForPctg:         t.GoalsForPctg,
 			PointPctg:            t.PointPctg,
+			HomeGamesPlayed:      t.HomeGamesPlayed,
+			HomeGoalsAgainst:     t.HomeGoalsAgainst,
+			RoadGamesPlayed:      t.RoadGamesPlayed,
+			RoadGoalsAgainst:     t.RoadGoalsAgainst,
 			L10GamesPlayed:       t.L10GamesPlayed,
 			L10GoalsAgainst:      t.L10GoalsAgainst,
 			L10GoalsFor:          t.L10GoalsFor,

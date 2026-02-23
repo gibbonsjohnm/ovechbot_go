@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -71,6 +72,27 @@ func ImpliedPct(american int) int {
 		return 100 * 100 / (100 + american)
 	}
 	return 100 * (-american) / (100 + (-american))
+}
+
+// ImpliedPctFromAmerican parses American odds string (e.g. "+140", "-150") and returns implied probability 0–100.
+// Returns (0, false) on parse failure.
+func ImpliedPctFromAmerican(s string) (int, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, false
+	}
+	negative := s[0] == '-'
+	if s[0] == '+' || s[0] == '-' {
+		s = s[1:]
+	}
+	price, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	if negative {
+		price = -price
+	}
+	return ImpliedPct(price), true
 }
 
 // OvechkinAnytimeGoal fetches odds for the given game. Returns nil if API key is empty, game has no matching event, or Ovechkin line not found.

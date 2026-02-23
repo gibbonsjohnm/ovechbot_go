@@ -17,7 +17,7 @@ type GameLogEntry struct {
 	Goals          int    `json:"goals"`
 }
 
-// StandingsTeam matches collector's nhl.StandingsTeam (includes L10 and strength metrics).
+// StandingsTeam matches collector's nhl.StandingsTeam (includes L10, venue split, strength metrics).
 type StandingsTeam struct {
 	TeamAbbrev           string  `json:"teamAbbrev"`
 	GamesPlayed          int     `json:"gamesPlayed"`
@@ -27,6 +27,10 @@ type StandingsTeam struct {
 	GoalDifferentialPctg float64 `json:"goalDifferentialPctg"`
 	GoalsForPctg         float64 `json:"goalsForPctg"`
 	PointPctg            float64 `json:"pointPctg"`
+	HomeGamesPlayed      int     `json:"homeGamesPlayed"`
+	HomeGoalsAgainst     int     `json:"homeGoalsAgainst"`
+	RoadGamesPlayed      int     `json:"roadGamesPlayed"`
+	RoadGoalsAgainst     int     `json:"roadGoalsAgainst"`
 	L10GamesPlayed       int     `json:"l10GamesPlayed"`
 	L10GoalsAgainst      int     `json:"l10GoalsAgainst"`
 	L10GoalsFor          int     `json:"l10GoalsFor"`

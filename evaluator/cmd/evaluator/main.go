@@ -19,6 +19,7 @@ const (
 	predictionSnapshotPrefix = "ovechkin:prediction_snapshot:"
 	lastReportedKey          = "ovechkin:evaluator_last_reported_game"
 	postGameStreamKey        = "ovechkin:post_game" // announcer consumes this and posts to Discord
+	calibrationLogKey       = "ovechkin:calibration:log"
 	checkInterval            = 30 * time.Minute
 	evaluatorRunTimeout      = 90 * time.Second
 )
@@ -128,6 +129,22 @@ func run(rdb *redis.Client) {
 	}
 
 	slog.Info("evaluator: publishing post-game summary", "game_id", game.GameID, "result", result)
+
+	// Append to calibration log for predictor (predicted % vs actual 0/1) so it can tune scale.
+	if predPct > 0 {
+		scoredInt := 0
+		if scored {
+			scoredInt = 1
+		}
+		calEntry, _ := json.Marshal(struct {
+			GameID  int64 `json:"game_id"`
+			PredPct int   `json:"pred_pct"`
+			Scored  int   `json:"scored"`
+		}{GameID: game.GameID, PredPct: predPct, Scored: scoredInt})
+		if err := rdb.LPush(ctx, calibrationLogKey, string(calEntry)).Err(); err == nil {
+			_ = rdb.LTrim(ctx, calibrationLogKey, 0, 99).Err()
+		}
+	}
 
 	payload, _ := json.Marshal(struct{ Message string }{Message: msg})
 	if err := rdb.XAdd(ctx, &redis.XAddArgs{

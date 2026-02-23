@@ -44,7 +44,7 @@ func LogisticPredict(g *schedule.Game, gameLog []cache.GameLogEntry, standings m
 		}
 		oppGA := leagueAvgGA
 		if t, ok := standings[e.OpponentAbbrev]; ok && t.GamesPlayed > 0 {
-			oppGA = effectiveOppGAPerGame(t)
+			oppGA = effectiveOppGAPerGameVenue(t, e.HomeRoadFlag == "H")
 		}
 		home := 0.0
 		if e.HomeRoadFlag == "H" {
@@ -99,7 +99,7 @@ func LogisticPredict(g *schedule.Game, gameLog []cache.GameLogEntry, standings m
 	}
 	oppGA := leagueAvgGA
 	if t, ok := standings[g.Opponent()]; ok && t.GamesPlayed > 0 {
-		oppGA = effectiveOppGAPerGame(t)
+		oppGA = effectiveOppGAPerGameVenue(t, g.IsHome())
 	}
 	home := 0.0
 	if g.IsHome() {

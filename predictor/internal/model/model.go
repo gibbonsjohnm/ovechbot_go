@@ -52,10 +52,10 @@ func predictHeuristic(g *schedule.Game, gameLog []cache.GameLogEntry, standings 
 	// League-average GA (full-season) so opponent factor is relative to league.
 	leagueAvgGA := leagueAvgGAFromStandings(standings)
 
-	// Opponent factor: more goals allowed by opponent → higher Ovi chance. Ratio vs league avg.
+	// Opponent factor: venue-specific GA when available (Caps home → use opp road GA; Caps away → use opp home GA).
 	oppFactor := 1.0
 	if t, ok := standings[g.Opponent()]; ok && t.GamesPlayed > 0 {
-		gaPerGame := effectiveOppGAPerGame(t)
+		gaPerGame := effectiveOppGAPerGameVenue(t, g.IsHome())
 		oppFactor = gaPerGame / leagueAvgGA
 		if oppFactor > 1.35 {
 			oppFactor = 1.35
@@ -94,6 +94,24 @@ func predictHeuristic(g *schedule.Game, gameLog []cache.GameLogEntry, standings 
 		}
 	}
 
+	// Ovi vs this opponent: his historical GPG vs this team vs baseline (last 10 meetings or all).
+	oviVsOppFactor := oviVsOpponentFactor(gameLog, g.Opponent(), baselineGPG)
+
+	// Opponent team strength: point % (stronger teams slightly harder to score on, same GA).
+	pointStrengthFactor := 1.0
+	if t, ok := standings[g.Opponent()]; ok && t.PointPctg > 0 {
+		pointStrengthFactor = 0.96 + 0.08*t.PointPctg
+		if pointStrengthFactor < 0.92 {
+			pointStrengthFactor = 0.92
+		}
+		if pointStrengthFactor > 1.08 {
+			pointStrengthFactor = 1.08
+		}
+	}
+
+	// Pace: high-event opponent (L10 GF+GA) → slightly more chances both ways.
+	paceFactor := paceFactorForOpponent(standings, g.Opponent())
+
 	// Back-to-back and rest: compare next game date to Caps' last game (from Ovi's game log).
 	restFactor := restFactor(g, gameLog)
 
@@ -109,22 +127,105 @@ func predictHeuristic(g *schedule.Game, gameLog []cache.GameLogEntry, standings 
 		}
 	}
 
-	prob := baseProb * oppFactor * homeFactor * recentFactor * restFactor * goalieFactor * CalibrationScale
+	prob := baseProb * oppFactor * homeFactor * recentFactor * oviVsOppFactor * pointStrengthFactor * paceFactor * restFactor * goalieFactor * CalibrationScale
 	return clampPct(int(math.Round(prob * 100)))
 }
 
-// effectiveOppGAPerGame returns goals-against per game for the opponent, blending full-season with
-// last-10 when available so recent defensive form is reflected.
+// effectiveOppGAPerGame returns goals-against per game for the opponent (no venue), blending full-season with L10.
+// Used by logistic training where we don't have venue in the same way.
 func effectiveOppGAPerGame(t cache.StandingsTeam) float64 {
+	return effectiveOppGAPerGameVenue(t, false)
+}
+
+// effectiveOppGAPerGameVenue returns venue-specific GA/GP when available: Caps home → opponent's road GA; Caps away → opponent's home GA.
+// Blends venue GA with L10 when L10 is available; falls back to full-season GA otherwise.
+func effectiveOppGAPerGameVenue(t cache.StandingsTeam, capsHome bool) float64 {
 	if t.GamesPlayed == 0 {
 		return 3.0
 	}
-	full := float64(t.GoalAgainst) / float64(t.GamesPlayed)
-	if t.L10GamesPlayed < 5 {
-		return full
+	var venueGA, venueGP int
+	if capsHome {
+		venueGA, venueGP = t.RoadGoalsAgainst, t.RoadGamesPlayed
+	} else {
+		venueGA, venueGP = t.HomeGoalsAgainst, t.HomeGamesPlayed
 	}
-	l10 := float64(t.L10GoalsAgainst) / float64(t.L10GamesPlayed)
-	return 0.7*full + 0.3*l10
+	full := float64(t.GoalAgainst) / float64(t.GamesPlayed)
+	if venueGP >= 5 {
+		venuePerGame := float64(venueGA) / float64(venueGP)
+		if t.L10GamesPlayed >= 5 {
+			l10 := float64(t.L10GoalsAgainst) / float64(t.L10GamesPlayed)
+			return 0.7*venuePerGame + 0.3*l10
+		}
+		return venuePerGame
+	}
+	if t.L10GamesPlayed >= 5 {
+		l10 := float64(t.L10GoalsAgainst) / float64(t.L10GamesPlayed)
+		return 0.7*full + 0.3*l10
+	}
+	return full
+}
+
+// oviVsOpponentFactor returns a multiplier from Ovi's historical GPG vs this opponent vs his baseline (0.85–1.15).
+func oviVsOpponentFactor(gameLog []cache.GameLogEntry, opponent string, baselineGPG float64) float64 {
+	const maxVsOpp = 10
+	var goals int
+	var games int
+	for i := len(gameLog) - 1; i >= 0 && games < maxVsOpp; i-- {
+		if gameLog[i].OpponentAbbrev != opponent {
+			continue
+		}
+		games++
+		goals += gameLog[i].Goals
+	}
+	if games < 3 || baselineGPG <= 0 {
+		return 1.0
+	}
+	gpgVsOpp := float64(goals) / float64(games)
+	ratio := gpgVsOpp / baselineGPG
+	if ratio < 0.85 {
+		ratio = 0.85
+	}
+	if ratio > 1.15 {
+		ratio = 1.15
+	}
+	return ratio
+}
+
+// paceFactorForOpponent returns a multiplier from opponent's L10 event rate vs league (0.97–1.03).
+func paceFactorForOpponent(standings map[string]cache.StandingsTeam, opponent string) float64 {
+	t, ok := standings[opponent]
+	if !ok || t.L10GamesPlayed < 5 {
+		return 1.0
+	}
+	oppPace := (float64(t.L10GoalsFor) + float64(t.L10GoalsAgainst)) / (2 * float64(t.L10GamesPlayed))
+	leaguePace := leagueAvgPaceFromStandings(standings)
+	if leaguePace <= 0 {
+		return 1.0
+	}
+	ratio := oppPace / leaguePace
+	if ratio < 0.97 {
+		ratio = 0.97
+	}
+	if ratio > 1.03 {
+		ratio = 1.03
+	}
+	return ratio
+}
+
+func leagueAvgPaceFromStandings(standings map[string]cache.StandingsTeam) float64 {
+	if len(standings) == 0 {
+		return 3.0
+	}
+	var sumGF, sumGA, sumGP int
+	for _, t := range standings {
+		sumGF += t.GoalsFor
+		sumGA += t.GoalAgainst
+		sumGP += t.GamesPlayed
+	}
+	if sumGP == 0 {
+		return 3.0
+	}
+	return (float64(sumGF) + float64(sumGA)) / float64(2*sumGP)
 }
 
 func clampPct(pct int) int {
