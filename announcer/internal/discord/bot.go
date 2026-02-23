@@ -109,6 +109,58 @@ func (b *Bot) PostGoalAnnouncement(ctx context.Context, goals int, recordedAt ti
 	return nil
 }
 
+// PostMessage sends a plain text message to the announce channel (e.g. post-game evaluation from evaluator).
+func (b *Bot) PostMessage(ctx context.Context, message string) error {
+	if b.channelID == "" {
+		return nil
+	}
+	b.mu.Lock()
+	s := b.session
+	b.mu.Unlock()
+	if s == nil {
+		return nil
+	}
+	_, err := s.ChannelMessageSend(b.channelID, message)
+	if err != nil {
+		return fmt.Errorf("send message: %w", err)
+	}
+	slog.Info("discord message sent", "channel", b.channelID)
+	return nil
+}
+
+// PostGameReminder posts a pre-game reminder with Ovi scoring probability (from predictor). oddsAmerican and goalieName are optional.
+func (b *Bot) PostGameReminder(ctx context.Context, opponent, homeAway string, probabilityPct int, startTimeUTC, oddsAmerican, goalieName string) error {
+	if b.channelID == "" {
+		return nil
+	}
+	b.mu.Lock()
+	s := b.session
+	b.mu.Unlock()
+	if s == nil {
+		return nil
+	}
+	vs := "vs"
+	if homeAway == "AWAY" {
+		vs = "@"
+	}
+	msg := fmt.Sprintf("🏒 **Caps game in ~1 hour** · %s **%s** (%s)\n📊 Ovi scoring chance: **%d%%**", vs, opponent, homeAway, probabilityPct)
+	if oddsAmerican != "" {
+		msg += fmt.Sprintf(" · Anytime goal: **%s**", oddsAmerican)
+	}
+	if goalieName != "" {
+		msg += fmt.Sprintf("\n🧤 Probable goalie: **%s**", goalieName)
+	}
+	if startTimeUTC != "" {
+		msg += "\n🕐 " + startTimeUTC
+	}
+	_, err := s.ChannelMessageSend(b.channelID, msg)
+	if err != nil {
+		return fmt.Errorf("send reminder: %w", err)
+	}
+	slog.Info("discord game reminder sent", "channel", b.channelID, "opponent", opponent, "probability_pct", probabilityPct)
+	return nil
+}
+
 // Session returns the discordgo session (for registering handlers and opening).
 func (b *Bot) Session() *discordgo.Session {
 	return b.session

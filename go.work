@@ -3,4 +3,7 @@ go 1.21
 use (
 	./ingestor
 	./announcer
+	./collector
+	./predictor
+	./evaluator
 )

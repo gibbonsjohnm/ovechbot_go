@@ -146,6 +146,7 @@ func (c *Client) CurrentCapitalsGame(ctx context.Context) (*CurrentCapitalsGame,
 
 // NextCapitalsGame holds the next (or current) Capitals game from the season schedule.
 type NextCapitalsGame struct {
+	GameID       int64     // for matching predictor's next_prediction
 	HomeAbbrev   string    // e.g. "WSH"
 	AwayAbbrev   string    // e.g. "PHI"
 	StartTimeUTC time.Time // when the game starts or started
@@ -172,6 +173,7 @@ func (c *Client) NextCapitalsGame(ctx context.Context) (*NextCapitalsGame, error
 	}
 	var sched struct {
 		Games []struct {
+			ID           int64     `json:"id"`
 			GameDate     string    `json:"gameDate"`
 			StartTimeUTC string    `json:"startTimeUTC"`
 			GameState    string    `json:"gameState"`
@@ -188,6 +190,7 @@ func (c *Client) NextCapitalsGame(ctx context.Context) (*NextCapitalsGame, error
 	for _, g := range sched.Games {
 		start, _ := time.Parse(time.RFC3339, g.StartTimeUTC)
 		n := &NextCapitalsGame{
+			GameID:       g.ID,
 			HomeAbbrev:   g.HomeTeam.Abbrev,
 			AwayAbbrev:   g.AwayTeam.Abbrev,
 			StartTimeUTC: start,

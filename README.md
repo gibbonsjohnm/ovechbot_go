@@ -5,12 +5,16 @@ Distributed Go application using a **Producer-Consumer (Ingestor/Announcer)** pa
 ## Architecture
 
 - **Ingestor**: Polls the [NHL API](https://api-web.nhle.com/v1/player/8471214/landing) for Ovechkin's career regular-season goals. When the count increases, it emits a "Goal Event" to a **Redis Stream** (`ovechkin:goals`).
-- **Announcer**: Subscribes to the stream via a Redis **Consumer Group** (`announcers`). When a goal event is received, it posts a **Discord** message (rich embed with emojis and Ovechkin image) to a channel and runs a **Discord bot** with slash commands for chatters.
+- **Announcer**: Subscribes to the stream via a Redis **Consumer Group** (`announcers`). When a goal event is received, it posts a **Discord** message (rich embed) to a channel and runs a **Discord bot** with slash commands. It also consumes **pre-game reminders** from `ovechkin:reminders` and **post-game evaluations** from `ovechkin:post_game`, posting both to Discord.
+- **Collector**: Periodically fetches Ovechkin’s **game log** (per-game goals, opponent, home/away) and **standings** (team goals-against) from the free NHL API and stores them in Redis (`ovechkin:game_log`, `standings:now`) for the predictor.
+- **Predictor**: Every 10 minutes, fetches the next Capitals game. It computes a **scoring probability** (heuristic: career GPG, opponent strength, home/away, recent form; **no ML**) and writes it to `ovechkin:next_prediction` so **`/nextgame`** can show it. If **ODDS_API_KEY** is set, it also fetches **Ovechkin anytime goal scorer** odds from [The Odds API](https://the-odds-api.com) and stores them with the prediction. Writes a snapshot per game to `ovechkin:prediction_snapshot:{game_id}` (7-day TTL) for the evaluator. When that game is **~1 hour** away (55–65 min), it publishes a reminder to `ovechkin:reminders` (announcer posts to Discord) and marks the game sent. Example: “Caps game in ~1 hour · vs **PHI** (HOME). Ovi scoring chance: **42%** · Anytime goal: **+140**”.
+
+- **Evaluator**: Runs every 30 minutes. After each completed Capitals game it fetches Ovechkin’s line (goals, assists, points, TOI, shifts, SOG) from the NHL boxscore, compares to our prediction snapshot, and **sends a Discord message** with a post-game summary and whether the prediction was a **Hit** (e.g. predicted ≥50% and he scored, or &lt;50% and he didn’t) or **Miss**. Does not feed into future predictions.
 
 ## Layout
 
-- **Go Workspace** (`go.work`): manages the `ingestor` and `announcer` modules.
-- **ingestor/** and **announcer/**: each has `cmd/`, `internal/`, `go.mod`, and a multi-stage **Dockerfile**.
+- **Go Workspace** (`go.work`): `ingestor`, `announcer`, `collector`, `predictor`, `evaluator`.
+- Each module has `cmd/`, `internal/`, `go.mod`, and a **Dockerfile**.
 
 ## Requirements
 
@@ -23,9 +27,12 @@ Distributed Go application using a **Producer-Consumer (Ingestor/Announcer)** pa
 docker compose up --build
 ```
 
-- **Redis Stack**: `localhost:6380` (Redis; 6379 avoided if you have another instance), `localhost:8002` (Redis Insight UI).
-- **Ingestor**: polls every 60s by default; set `POLL_INTERVAL` to change (e.g. `30s`).
-- **Announcer**: reads from the stream; if Discord is configured, posts goal announcements to a channel and responds to slash commands.
+- **Redis Stack**: `localhost:6380`, `localhost:8002` (Redis Insight).
+- **Ingestor**: polls every 60s; `POLL_INTERVAL` to change.
+- **Collector**: refreshes game log and standings every 6h; `COLLECTOR_INTERVAL` to change.
+- **Predictor**: every 10 min, computes Ovi scoring % for the next game and writes to `ovechkin:next_prediction` (for `/nextgame`); when that game is in 55–65 min, also publishes to `ovechkin:reminders`.
+- **Announcer**: consumes `ovechkin:goals` and `ovechkin:reminders`; posts goal announcements and pre-game reminders to Discord and runs slash commands.
+- **Evaluator**: every 30 min, checks for the latest completed Caps game. If not yet reported, fetches boxscore (Ovi’s stats) and our prediction snapshot, then publishes one post-game summary to the Redis stream `ovechkin:post_game`. The **announcer** consumes that stream and posts the summary to Discord (same channel as goals/reminders), so no separate Discord config is needed for the evaluator.
 
 ### Discord (goal announcements + bot commands)
 
@@ -42,7 +49,7 @@ To post goal announcements to a Discord server and enable slash commands, set th
 
 - **`/goals`** – Alex Ovechkin’s career goal total (regular season), live from the NHL API.
 - **`/lastgoal`** – Date, opponent, and opposing goalie for his most recent goal. When the last goal we announced is still the current total, the reply is served from the **stream cache** (same data we posted); otherwise it fetches from the NHL API (last 5 games + boxscore).
-- **`/nextgame`** – Next (or current) Washington Capitals game: opponent, venue, and start time (Eastern). Uses the NHL club schedule season API.
+- **`/nextgame`** – Next (or current) Washington Capitals game: opponent, venue, and start time (Eastern). If the predictor has run, also shows **Ovi scoring chance: X%** and, when odds are available, **Anytime goal: +XXX** (market line from The Odds API).
 - **`/ping`** – Check if the bot is online.
 
 **Possible future commands:** `/gap` (goals behind Gretzky’s 894), `/milestone` (next round number and how many away), `/last5` (goals in each of last 5 games from landing API).
@@ -67,14 +74,13 @@ Then check the Announcer container logs. To inject manually: `docker compose exe
 2. From repo root:
 
 ```bash
-# Ingestor
-go run ./ingestor/cmd/ingestor
-
-# Announcer (separate terminal)
-go run ./announcer/cmd/announcer
+go run ./ingestor/cmd/ingestor    # terminal 1
+go run ./collector/cmd/collector  # terminal 2
+go run ./predictor/cmd/predictor  # terminal 3
+go run ./announcer/cmd/announcer  # terminal 4
 ```
 
-Env (optional): `REDIS_ADDR` (default `redis:6379` in compose), `POLL_INTERVAL` (ingestor only, default `60s`). For Discord: `DISCORD_BOT_TOKEN`, `DISCORD_ANNOUNCE_CHANNEL_ID`, `DISCORD_GUILD_ID`, `DISCORD_OVECHKIN_IMAGE_URL` (see table above).
+Env: `REDIS_ADDR` (default `redis:6379` in compose), `POLL_INTERVAL` (ingestor), `COLLECTOR_INTERVAL` (collector, default 6h), `ODDS_API_KEY` (optional; predictor fetches Ovi anytime goal scorer odds). Discord vars: see table above.
 
 ## Graceful shutdown
 

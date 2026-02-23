@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -17,6 +19,8 @@ import (
 	"ovechbot_go/announcer/internal/discord"
 	"ovechbot_go/announcer/internal/nhl"
 )
+
+const nextPredictionKey = "ovechkin:next_prediction"
 
 // lastAnnouncedGoal is the most recent goal event we posted to Discord (used by /lastgoal to avoid NHL API when current).
 var lastAnnouncedMu sync.Mutex
@@ -46,6 +50,14 @@ func main() {
 	c := consumer.NewConsumer(rdb)
 	if err := c.EnsureGroup(ctx); err != nil && !strings.Contains(err.Error(), "BUSYGROUP") {
 		slog.Warn("consumer group ensure", "group", consumer.ConsumerGroup, "error", err)
+	}
+	remConsumer := consumer.NewReminderConsumer(rdb)
+	if err := remConsumer.EnsureReminderGroup(ctx); err != nil && !strings.Contains(err.Error(), "BUSYGROUP") {
+		slog.Warn("reminder group ensure", "stream", consumer.RemindersStreamKey, "error", err)
+	}
+	postGameConsumer := consumer.NewPostGameConsumer(rdb)
+	if err := postGameConsumer.EnsurePostGameGroup(ctx); err != nil && !strings.Contains(err.Error(), "BUSYGROUP") {
+		slog.Warn("post-game group ensure", "stream", consumer.PostGameStreamKey, "error", err)
 	}
 	slog.Info("announcer started", "stream", consumer.StreamKey, "group", consumer.ConsumerGroup)
 
@@ -118,14 +130,35 @@ func main() {
 					}
 					et, err := time.LoadLocation("America/New_York")
 					if err != nil {
-						et = time.FixedZone("ET", -5*3600) // EST fallback when tzdata missing (e.g. Docker)
+						et = time.FixedZone("ET", -5*3600)
 					}
 					startET := game.StartTimeUTC.In(et)
 					when := startET.Format("Mon Jan 2, 3:04 PM ET")
+					var msg string
 					if nhl.InProgressGameStates[game.GameState] {
-						return fmt.Sprintf("🏒 **Capitals are playing now:** %s @ **%s**\n📍 %s · %s", game.AwayAbbrev, game.HomeAbbrev, game.Venue, when)
+						msg = fmt.Sprintf("🏒 **Capitals are playing now:** %s @ **%s**\n📍 %s · %s", game.AwayAbbrev, game.HomeAbbrev, game.Venue, when)
+					} else {
+						msg = fmt.Sprintf("📅 **Next game:** %s @ **%s**\n📍 %s · %s", game.AwayAbbrev, game.HomeAbbrev, game.Venue, when)
 					}
-					return fmt.Sprintf("📅 **Next game:** %s @ **%s**\n📍 %s · %s", game.AwayAbbrev, game.HomeAbbrev, game.Venue, when)
+					// Append Ovi scoring prediction (and optional odds) if predictor has written one for this game
+					if b, err := rdb.Get(context.Background(), nextPredictionKey).Bytes(); err == nil {
+						var pred struct {
+							GameID         int64  `json:"game_id"`
+							ProbabilityPct int    `json:"probability_pct"`
+							OddsAmerican   string `json:"odds_american,omitempty"`
+							GoalieName     string `json:"goalie_name,omitempty"`
+						}
+						if json.Unmarshal(b, &pred) == nil && pred.GameID == game.GameID && pred.ProbabilityPct > 0 {
+							msg += "\n📊 Ovi scoring chance: **" + strconv.Itoa(pred.ProbabilityPct) + "%**"
+							if pred.OddsAmerican != "" {
+								msg += " · Anytime goal: **" + pred.OddsAmerican + "**"
+							}
+							if pred.GoalieName != "" {
+								msg += "\n🧤 Probable goalie: **" + pred.GoalieName + "**"
+							}
+						}
+					}
+					return msg
 				})
 			}
 		})
@@ -148,6 +181,10 @@ func main() {
 		}
 		// Status: "Watching HOME vs AWAY" when Capitals are in the schedule, else "Watching the NHL"
 		go runStatusUpdates(ctx, bot, nhlClient)
+		// Reminder consumer: pre-game messages with Ovi scoring probability (from predictor)
+		go runReminderConsumer(ctx, remConsumer, bot)
+		// Post-game consumer: evaluation summary (evaluator → Redis → announcer)
+		go runPostGameConsumer(ctx, postGameConsumer, bot)
 	} else {
 		slog.Info("DISCORD_BOT_TOKEN not set; Discord announcements and commands disabled")
 	}
@@ -221,6 +258,62 @@ func deferRespond(s *discordgo.Session, i *discordgo.InteractionCreate, fn func(
 	})
 	if err != nil {
 		slog.Warn("discord followup failed", "error", err)
+	}
+}
+
+// runPostGameConsumer reads from ovechkin:post_game and posts evaluation summary to Discord.
+func runPostGameConsumer(ctx context.Context, c *consumer.PostGameConsumer, bot *discord.Bot) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			payloads, ids, err := c.ReadPostGames(ctx)
+			if err != nil {
+				slog.Warn("read post-game failed", "error", err)
+				continue
+			}
+			if bot != nil && bot.Session() != nil {
+				for _, p := range payloads {
+					if err := bot.PostMessage(ctx, p.Message); err != nil {
+						slog.Warn("post-game send failed", "error", err)
+					}
+				}
+			}
+			if len(ids) > 0 {
+				if err := c.AckPostGames(ctx, ids...); err != nil {
+					slog.Warn("post-game ack failed", "error", err)
+				}
+			}
+		}
+	}
+}
+
+// runReminderConsumer reads from ovechkin:reminders and posts to Discord.
+func runReminderConsumer(ctx context.Context, rem *consumer.ReminderConsumer, bot *discord.Bot) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			payloads, ids, err := rem.ReadReminders(ctx)
+			if err != nil {
+				slog.Warn("read reminders failed", "error", err)
+				continue
+			}
+			if bot != nil && bot.Session() != nil {
+				for _, p := range payloads {
+					if err := bot.PostGameReminder(ctx, p.Opponent, p.HomeAway, p.ProbabilityPct, p.StartTimeUTC, p.OddsAmerican, p.GoalieName); err != nil {
+						slog.Warn("post reminder failed", "error", err)
+					}
+				}
+			}
+			if len(ids) > 0 {
+				if err := rem.AckReminders(ctx, ids...); err != nil {
+					slog.Warn("reminder ack failed", "error", err)
+				}
+			}
+		}
 	}
 }
 

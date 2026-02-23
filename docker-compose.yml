@@ -21,6 +21,29 @@ services:
       redis:
         condition: service_healthy
 
+  collector:
+    build:
+      context: ./collector
+      dockerfile: Dockerfile
+    environment:
+      REDIS_ADDR: redis:6379
+      COLLECTOR_INTERVAL: 6h
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  predictor:
+    build:
+      context: ./predictor
+      dockerfile: Dockerfile
+    environment:
+      REDIS_ADDR: redis:6379
+      # Optional: set in .env to show anytime goal scorer odds in /nextgame and reminders
+      ODDS_API_KEY: ${ODDS_API_KEY:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+
   announcer:
     build:
       context: ./announcer
@@ -30,6 +53,17 @@ services:
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
       DISCORD_ANNOUNCE_CHANNEL_ID: ${DISCORD_ANNOUNCE_CHANNEL_ID:-}
       DISCORD_GUILD_ID: ${DISCORD_GUILD_ID:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # Runs every 30m; after each completed Caps game publishes post-game summary to ovechkin:post_game; announcer posts to Discord.
+  evaluator:
+    build:
+      context: ./evaluator
+      dockerfile: Dockerfile
+    environment:
+      REDIS_ADDR: redis:6379
     depends_on:
       redis:
         condition: service_healthy
