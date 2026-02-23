@@ -53,7 +53,8 @@ func main() {
 	defer ticker.Stop()
 
 	run := func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		// 2m so we have time for a 1m retry wait when game log is empty at startup
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 
 		slog.Info("predictor tick", "action", "fetch_next_game")
@@ -75,8 +76,19 @@ func main() {
 			return
 		}
 		if len(gameLog) == 0 {
-			slog.Info("game log empty, skipping prediction until collector fills it")
-			return
+			slog.Info("game log empty, retrying once in 1m in case collector is still filling at startup")
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(1 * time.Minute):
+			}
+			retryCtx, retryCancel := context.WithTimeout(context.Background(), 15*time.Second)
+			gameLog, err = reader.ReadGameLog(retryCtx)
+			retryCancel()
+			if err != nil || len(gameLog) == 0 {
+				slog.Info("game log still empty after retry, skipping prediction until next tick")
+				return
+			}
 		}
 		standings, errStand := reader.ReadStandings(ctx)
 		standingsOk := errStand == nil && len(standings) > 0
