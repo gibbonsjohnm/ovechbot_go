@@ -52,11 +52,11 @@ func predictHeuristic(g *schedule.Game, gameLog []cache.GameLogEntry, standings 
 	// League-average GA (full-season) so opponent factor is relative to league.
 	leagueAvgGA := leagueAvgGAFromStandings(standings)
 
-	// Opponent factor: use effective GA/GP (blend full-season with L10 when available) for robustness.
+	// Opponent factor: more goals allowed by opponent → higher Ovi chance. Ratio vs league avg.
 	oppFactor := 1.0
 	if t, ok := standings[g.Opponent()]; ok && t.GamesPlayed > 0 {
 		gaPerGame := effectiveOppGAPerGame(t)
-		oppFactor = leagueAvgGA / gaPerGame
+		oppFactor = gaPerGame / leagueAvgGA
 		if oppFactor > 1.35 {
 			oppFactor = 1.35
 		}
