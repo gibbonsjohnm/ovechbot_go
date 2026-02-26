@@ -5,14 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"ovechbot_go/predictor/internal/schedule"
 )
 
 const (
-	boxscoreURLFmt  = "https://api-web.nhle.com/v1/gamecenter/%d/boxscore"
+	boxscoreURLFmt   = "https://api-web.nhle.com/v1/gamecenter/%d/boxscore"
 	playerLandingFmt = "https://api-web.nhle.com/v1/player/%d/landing"
+	rosterURLFmt     = "https://api-web.nhle.com/v1/roster/%s/current"
 )
 
 // Info is the opposing starter's name and season save percentage (0–1). When SavePct is 0, factor should be 1.0.
@@ -31,8 +33,36 @@ func NewClient() *Client {
 	return &Client{http: &http.Client{Timeout: 12 * time.Second}}
 }
 
-// OpposingStarter returns the opposing team's starting goalie (name + season SV%) for the given game. Returns nil if boxscore has no goalies (e.g. game not yet opened) or fetch fails.
+// OpposingStarter returns the opposing team's starting goalie (name + season SV%) for the given game.
+// It tries the NHL boxscore first (authoritative but often not available until near/after puck drop).
+// If the boxscore has no goalies yet, it falls back to Daily Faceoff's starting-goalies page so the
+// prediction can include goalie strength when sent ~1 hour before game time.
 func (c *Client) OpposingStarter(ctx context.Context, g *schedule.Game) (*Info, error) {
+	info, err := c.opposingStarterFromBoxscore(ctx, g)
+	if err != nil {
+		return nil, err
+	}
+	if info != nil {
+		return info, nil
+	}
+	// Boxscore has no goalies yet; try Daily Faceoff for projected/confirmed starter.
+	dfoName := c.OpposingStarterFromDFO(ctx, g)
+	if dfoName == "" {
+		return nil, nil
+	}
+	playerID, displayName := c.resolveGoalieByName(ctx, g.Opponent(), dfoName)
+	if playerID == 0 {
+		return &Info{Name: dfoName, SavePct: 0}, nil
+	}
+	savePct, _ := c.playerSavePct(ctx, playerID)
+	if displayName == "" {
+		displayName = dfoName
+	}
+	return &Info{Name: displayName, SavePct: savePct}, nil
+}
+
+// opposingStarterFromBoxscore returns the opponent's starter from the NHL game boxscore, or nil if not yet published.
+func (c *Client) opposingStarterFromBoxscore(ctx context.Context, g *schedule.Game) (*Info, error) {
 	url := fmt.Sprintf(boxscoreURLFmt, g.GameID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -115,6 +145,56 @@ func (c *Client) OpposingStarter(ctx context.Context, g *schedule.Game) (*Info, 
 		return &Info{Name: goalieName, SavePct: 0}, nil
 	}
 	return &Info{Name: goalieName, SavePct: savePct}, nil
+}
+
+// resolveGoalieByName fetches the opponent's roster from the NHL API and returns the goalie's player ID and display name (e.g. "D. Vladar") that matches the given full name (e.g. "Dan Vladar").
+func (c *Client) resolveGoalieByName(ctx context.Context, teamAbbrev, fullName string) (playerID int, displayName string) {
+	url := fmt.Sprintf(rosterURLFmt, teamAbbrev)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0, ""
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return 0, ""
+	}
+	defer resp.Body.Close()
+	var roster struct {
+		Goalies []struct {
+			ID        int `json:"id"`
+			FirstName struct {
+				Default string `json:"default"`
+			} `json:"firstName"`
+			LastName struct {
+				Default string `json:"default"`
+			} `json:"lastName"`
+		} `json:"goalies"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&roster); err != nil {
+		return 0, ""
+	}
+	fullName = strings.TrimSpace(fullName)
+	parts := strings.SplitN(fullName, " ", 2)
+	var first, last string
+	if len(parts) == 2 {
+		first, last = parts[0], parts[1]
+	} else {
+		last = fullName
+	}
+	for _, g := range roster.Goalies {
+		rosterLast := g.LastName.Default
+		rosterFirst := g.FirstName.Default
+		if strings.EqualFold(rosterLast, last) && (first == "" || strings.EqualFold(rosterFirst, first) || (len(rosterFirst) > 0 && len(first) > 0 && rosterFirst[0] == first[0])) {
+			if len(rosterFirst) > 0 {
+				displayName = rosterFirst[:1] + ". " + rosterLast
+			} else {
+				displayName = rosterLast
+			}
+			return g.ID, displayName
+		}
+	}
+	return 0, ""
 }
 
 func (c *Client) playerSavePct(ctx context.Context, playerID int) (float64, error) {

@@ -20,7 +20,7 @@ const (
 	lastReportedKey          = "ovechkin:evaluator_last_reported_game"
 	postGameStreamKey        = "ovechkin:post_game" // announcer consumes this and posts to Discord
 	calibrationLogKey       = "ovechkin:calibration:log"
-	checkInterval            = 30 * time.Minute
+	checkInterval            = 15 * time.Minute
 	evaluatorRunTimeout      = 90 * time.Second
 )
 
@@ -146,7 +146,7 @@ func run(rdb *redis.Client) {
 		}
 	}
 
-	payload, _ := json.Marshal(struct{ Message string }{Message: msg})
+	payload, _ := json.Marshal(struct{ Message string `json:"message"` }{Message: msg})
 	if err := rdb.XAdd(ctx, &redis.XAddArgs{
 		Stream: postGameStreamKey,
 		Values: map[string]any{"payload": string(payload)},

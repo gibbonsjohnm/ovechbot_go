@@ -50,6 +50,7 @@ func LastCompletedGame(ctx context.Context) (*CompletedGame, error) {
 	}
 	now := time.Now().UTC()
 	var last *CompletedGame
+	var lastStart time.Time
 	for _, g := range sched.Games {
 		if g.GameState != "OFF" {
 			continue
@@ -58,6 +59,11 @@ func LastCompletedGame(ctx context.Context) (*CompletedGame, error) {
 		if err != nil || start.After(now) {
 			continue
 		}
+		// Pick the completed game with the latest start time (most recently finished).
+		if last != nil && !start.After(lastStart) {
+			continue
+		}
+		lastStart = start
 		opp := g.AwayTeam.Abbrev
 		if g.AwayTeam.Abbrev == "WSH" {
 			opp = g.HomeTeam.Abbrev

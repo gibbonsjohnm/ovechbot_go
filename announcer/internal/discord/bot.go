@@ -148,10 +148,18 @@ func (b *Bot) PostGameReminder(ctx context.Context, opponent, homeAway string, p
 		msg += fmt.Sprintf(" · Anytime goal: **%s**", oddsAmerican)
 	}
 	if goalieName != "" {
-		msg += fmt.Sprintf("\n🧤 Probable goalie: **%s**", goalieName)
+		msg += fmt.Sprintf("\n:goal: Probable goalie: **%s**", goalieName)
 	}
 	if startTimeUTC != "" {
-		msg += "\n🕐 " + startTimeUTC
+		if t, err := time.Parse(time.RFC3339, startTimeUTC); err == nil {
+			et, errLoc := time.LoadLocation("America/New_York")
+			if errLoc != nil {
+				et = time.FixedZone("ET", -5*3600)
+			}
+			msg += "\n🕐 " + t.In(et).Format("Mon Jan 2, 3:04 PM ET")
+		} else {
+			msg += "\n🕐 " + startTimeUTC
+		}
 	}
 	_, err := s.ChannelMessageSend(b.channelID, msg)
 	if err != nil {

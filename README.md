@@ -27,6 +27,23 @@ Distributed Go application using a **Producer-Consumer (Ingestor/Announcer)** pa
 docker compose up --build
 ```
 
+### Deploy stateless apps only (new images, Redis left running)
+
+When you build images locally and want to roll out new code without touching Redis:
+
+```bash
+# Rebuild all app images (no cache) and recreate only those containers
+make deploy-stateless
+```
+
+Or with cache for a quicker rebuild when only one service changed:
+
+```bash
+make deploy-stateless-fast
+```
+
+This builds and runs `ingestor`, `collector`, `predictor`, `announcer`, and `evaluator`; Redis is not recreated. See `Makefile` for the exact `docker compose` commands.
+
 - **Redis Stack**: `localhost:6380`, `localhost:8002` (Redis Insight).
 - **Ingestor**: polls every 60s; `POLL_INTERVAL` to change.
 - **Collector**: refreshes game log and standings every 6h; `COLLECTOR_INTERVAL` to change.

@@ -105,7 +105,7 @@ func main() {
 						}
 						msg := fmt.Sprintf("📅 **Last goal:** #%d · %s vs **%s** (%s)", cached.Goals, cached.RecordedAt.Format("Jan 2, 2006"), oppName, cached.Opponent)
 						if cached.GoalieName != "" {
-							msg += fmt.Sprintf("\n🧤 Opposing goalie: **%s**", cached.GoalieName)
+							msg += fmt.Sprintf("\n:goal: Opposing goalie: **%s**", cached.GoalieName)
 						}
 						return msg + "\n_(from stream)_"
 					}
@@ -115,7 +115,7 @@ func main() {
 					}
 					msg := fmt.Sprintf("📅 **Last goal:** %s vs **%s** (%s)", info.GameDate, info.OpponentName, info.Opponent)
 					if info.GoalieName != "" {
-						msg += fmt.Sprintf("\n🧤 Opposing goalie: **%s**", info.GoalieName)
+						msg += fmt.Sprintf("\n:goal: Opposing goalie: **%s**", info.GoalieName)
 					}
 					return msg
 				})
@@ -154,7 +154,7 @@ func main() {
 								msg += " · Anytime goal: **" + pred.OddsAmerican + "**"
 							}
 							if pred.GoalieName != "" {
-								msg += "\n🧤 Probable goalie: **" + pred.GoalieName + "**"
+								msg += "\n:goal: Probable goalie: **" + pred.GoalieName + "**"
 							}
 						}
 					}
