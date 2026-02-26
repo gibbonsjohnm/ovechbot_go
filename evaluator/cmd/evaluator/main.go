@@ -80,13 +80,12 @@ func run(rdb *redis.Client) {
 
 	snapBytes, err := rdb.Get(ctx, predictionSnapshotPrefix+strconv.FormatInt(game.GameID, 10)).Bytes()
 	var predPct int
-	var odds, goalie string
+	var odds string
 	if err == nil {
 		var snap predictionSnapshot
 		_ = json.Unmarshal(snapBytes, &snap)
 		predPct = snap.ProbabilityPct
 		odds = snap.OddsAmerican
-		goalie = snap.GoalieName
 	}
 
 	stats, err := nhl.OvechkinGameStats(ctx, game.GameID)
@@ -116,12 +115,9 @@ func run(rdb *redis.Client) {
 	msg += fmt.Sprintf("**Ovi:** %dG, %dA, %d PTS · TOI %s · %d shifts · %d SOG\n",
 		stats.Goals, stats.Assists, stats.Points, stats.TOI, stats.Shifts, stats.SOG)
 	if predPct > 0 {
-		msg += fmt.Sprintf("**Prediction:** %d%% · Actual: %s · **%s**", predPct, actualStr, result)
+		msg += fmt.Sprintf("**Prediction:** %d%% · Actual: %s", predPct, actualStr)
 		if odds != "" {
 			msg += fmt.Sprintf(" · Odds had: %s", odds)
-		}
-		if goalie != "" {
-			msg += fmt.Sprintf(" · Goalie: %s", goalie)
 		}
 		msg += "\n"
 	} else {
