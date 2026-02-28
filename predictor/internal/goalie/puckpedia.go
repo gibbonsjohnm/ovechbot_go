@@ -27,6 +27,19 @@ var opponentNameFragment = map[string]string{
 
 const capitalsMatch = "Washington"
 
+// puckPediaCapsFragments: page may use "WAS" or "Capitals" instead of "Washington".
+var puckPediaCapsFragments = []string{capitalsMatch, "Capitals", "WAS"}
+
+// puckPediaOpponentAlternatives: for some opponents, PuckPedia uses nickname or abbrev (e.g. "Canadiens", "MTL" not "Montreal").
+var puckPediaOpponentAlternatives = map[string][]string{
+	"Montreal":   {"Canadiens", "MTL"},
+	"New Jersey": {"Devils", "NJD"},
+	"San Jose":   {"Sharks", "SJS"},
+	"Tampa Bay":  {"Lightning", "TBL"},
+	"Los Angeles": {"Kings", "LAK"},
+	"St. Louis":  {"Blues", "STL"},
+}
+
 // OpposingStarterFromPuckPedia fetches PuckPedia's starting-goalies page and returns the opposing
 // team's starter name (e.g. "Jakub Dobes") for the given game. Returns empty string if not found.
 // Page order: away goalie, then home goalie.
@@ -64,13 +77,30 @@ func parsePuckPediaGoalieName(html []byte, opponentFragment string, capsAreHome 
 	text := string(html)
 	textLower := strings.ToLower(text)
 	oppLower := strings.ToLower(opponentFragment)
-	if !strings.Contains(text, capitalsMatch) && !strings.Contains(textLower, "capitals") {
+	// Page may use "WAS"/"Capitals" not "Washington", and "Canadiens"/"MTL" not "Montreal".
+	hasCapsInPage := false
+	for _, f := range puckPediaCapsFragments {
+		if strings.Contains(text, f) || strings.Contains(textLower, strings.ToLower(f)) {
+			hasCapsInPage = true
+			break
+		}
+	}
+	if !hasCapsInPage {
 		return ""
 	}
-	if !strings.Contains(textLower, oppLower) {
+	hasOppInPage := strings.Contains(textLower, oppLower)
+	if !hasOppInPage && puckPediaOpponentAlternatives[opponentFragment] != nil {
+		for _, alt := range puckPediaOpponentAlternatives[opponentFragment] {
+			if strings.Contains(text, alt) || strings.Contains(textLower, strings.ToLower(alt)) {
+				hasOppInPage = true
+				break
+			}
+		}
+	}
+	if !hasOppInPage {
 		return ""
 	}
-	// Find block: Washington (or Capitals) and opponent within 250 chars (page may use "Canadiens" etc.).
+	// Find block: Caps fragment and opponent fragment within 250 chars.
 	const matchupWindow = 250
 	gameBlockStart := -1
 	windowLen := matchupWindow
@@ -80,8 +110,23 @@ func parsePuckPediaGoalieName(html []byte, opponentFragment string, capsAreHome 
 	for i := 0; i <= len(text)-windowLen; i++ {
 		window := text[i : i+windowLen]
 		windowLower := strings.ToLower(window)
-		hasCaps := strings.Contains(window, capitalsMatch) || strings.Contains(windowLower, "capitals")
-		if hasCaps && strings.Contains(windowLower, oppLower) {
+		hasCaps := false
+		for _, f := range puckPediaCapsFragments {
+			if strings.Contains(window, f) || strings.Contains(windowLower, strings.ToLower(f)) {
+				hasCaps = true
+				break
+			}
+		}
+		hasOpp := strings.Contains(windowLower, oppLower)
+		if !hasOpp && puckPediaOpponentAlternatives[opponentFragment] != nil {
+			for _, alt := range puckPediaOpponentAlternatives[opponentFragment] {
+				if strings.Contains(window, alt) || strings.Contains(windowLower, strings.ToLower(alt)) {
+					hasOpp = true
+					break
+				}
+			}
+		}
+		if hasCaps && hasOpp {
 			gameBlockStart = i
 			break
 		}

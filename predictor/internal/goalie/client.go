@@ -35,10 +35,24 @@ func NewClient() *Client {
 }
 
 // OpposingStarter returns the opposing team's starting goalie (name + season SV%) for the given game.
-// It tries the NHL boxscore first (authoritative but often not available until near/after puck drop).
-// If the boxscore has no goalies yet, it falls back to PuckPedia's starting-goalies page so the
-// prediction can include goalie strength when sent ~1 hour before game time.
+// It tries PuckPedia first (no NHL game ID needed; uses opponent + home/away only). If that returns
+// nothing, it falls back to the NHL boxscore (authoritative but often not available until near puck drop).
 func (c *Client) OpposingStarter(ctx context.Context, g *schedule.Game) (*Info, error) {
+	// Try PuckPedia first — does not use NHL game ID, only opponent and home/away from schedule.
+	slog.Info("goalie: fetching from PuckPedia", "opponent", g.Opponent(), "caps_home", g.IsHome())
+	name := c.OpposingStarterFromPuckPedia(ctx, g)
+	if name != "" {
+		playerID, displayName := c.resolveGoalieByName(ctx, g.Opponent(), name)
+		if playerID != 0 {
+			savePct, _ := c.playerSavePct(ctx, playerID)
+			if displayName == "" {
+				displayName = name
+			}
+			return &Info{Name: displayName, SavePct: savePct}, nil
+		}
+		slog.Warn("goalie: PuckPedia name not on opponent roster, discarding", "name", name, "opponent", g.Opponent())
+	}
+	// Fallback: NHL boxscore (uses game ID; often empty until near/after puck drop).
 	info, err := c.opposingStarterFromBoxscore(ctx, g)
 	if err != nil {
 		return nil, err
@@ -46,23 +60,8 @@ func (c *Client) OpposingStarter(ctx context.Context, g *schedule.Game) (*Info, 
 	if info != nil {
 		return info, nil
 	}
-	// Boxscore has no goalies yet; try PuckPedia for projected/confirmed starter.
-	slog.Info("goalie: boxscore has no goalies, trying PuckPedia", "game_id", g.GameID, "opponent", g.Opponent())
-	name := c.OpposingStarterFromPuckPedia(ctx, g)
-	if name == "" {
-		slog.Info("goalie: PuckPedia returned no name for this game", "game_id", g.GameID)
-		return nil, nil
-	}
-	playerID, displayName := c.resolveGoalieByName(ctx, g.Opponent(), name)
-	if playerID == 0 {
-		slog.Warn("goalie: name not found on opponent roster, discarding", "name", name, "opponent", g.Opponent())
-		return nil, nil
-	}
-	savePct, _ := c.playerSavePct(ctx, playerID)
-	if displayName == "" {
-		displayName = name
-	}
-	return &Info{Name: displayName, SavePct: savePct}, nil
+	slog.Info("goalie: none found", "opponent", g.Opponent(), "hint", "PuckPedia had no name and boxscore not yet published")
+	return nil, nil
 }
 
 // opposingStarterFromBoxscore returns the opponent's starter from the NHL game boxscore, or nil if not yet published.
