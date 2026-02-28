@@ -36,7 +36,7 @@ func NewClient() *Client {
 
 // OpposingStarter returns the opposing team's starting goalie (name + season SV%) for the given game.
 // It tries the NHL boxscore first (authoritative but often not available until near/after puck drop).
-// If the boxscore has no goalies yet, it falls back to Daily Faceoff's starting-goalies page so the
+// If the boxscore has no goalies yet, it falls back to PuckPedia's starting-goalies page so the
 // prediction can include goalie strength when sent ~1 hour before game time.
 func (c *Client) OpposingStarter(ctx context.Context, g *schedule.Game) (*Info, error) {
 	info, err := c.opposingStarterFromBoxscore(ctx, g)
@@ -46,22 +46,21 @@ func (c *Client) OpposingStarter(ctx context.Context, g *schedule.Game) (*Info, 
 	if info != nil {
 		return info, nil
 	}
-	// Boxscore has no goalies yet; try Daily Faceoff for projected/confirmed starter.
-	slog.Info("goalie: boxscore has no goalies, trying Daily Faceoff", "game_id", g.GameID, "opponent", g.Opponent())
-	dfoName := c.OpposingStarterFromDFO(ctx, g)
-	if dfoName == "" {
-		slog.Info("goalie: Daily Faceoff returned no name for this game", "game_id", g.GameID)
+	// Boxscore has no goalies yet; try PuckPedia for projected/confirmed starter.
+	slog.Info("goalie: boxscore has no goalies, trying PuckPedia", "game_id", g.GameID, "opponent", g.Opponent())
+	name := c.OpposingStarterFromPuckPedia(ctx, g)
+	if name == "" {
+		slog.Info("goalie: PuckPedia returned no name for this game", "game_id", g.GameID)
 		return nil, nil
 	}
-	playerID, displayName := c.resolveGoalieByName(ctx, g.Opponent(), dfoName)
+	playerID, displayName := c.resolveGoalieByName(ctx, g.Opponent(), name)
 	if playerID == 0 {
-		// DFO name not found on opponent's roster — likely the wrong goalie was parsed.
-		slog.Warn("goalie: DFO name not found on opponent roster, discarding", "dfo_name", dfoName, "opponent", g.Opponent())
+		slog.Warn("goalie: name not found on opponent roster, discarding", "name", name, "opponent", g.Opponent())
 		return nil, nil
 	}
 	savePct, _ := c.playerSavePct(ctx, playerID)
 	if displayName == "" {
-		displayName = dfoName
+		displayName = name
 	}
 	return &Info{Name: displayName, SavePct: savePct}, nil
 }
