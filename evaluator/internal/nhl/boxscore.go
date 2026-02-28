@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 )
 
 const ovechkinPlayerID = 8471214
@@ -29,8 +28,8 @@ func OvechkinGameStats(ctx context.Context, gameID int64) (*PlayerGameStats, err
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
+	req.Header.Set("User-Agent", "OvechBot/1.0")
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

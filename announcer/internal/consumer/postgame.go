@@ -3,6 +3,7 @@ package consumer
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -51,9 +52,16 @@ func (c *PostGameConsumer) ReadPostGames(ctx context.Context) ([]PostGamePayload
 	var ids []string
 	for _, msg := range streams[0].Messages {
 		ids = append(ids, msg.ID)
-		raw, _ := msg.Values["payload"].(string)
+		raw, ok := msg.Values["payload"].(string)
+		if !ok {
+			slog.Warn("post-game consumer: invalid payload type, skipping", "msg_id", msg.ID)
+			continue
+		}
 		var p PostGamePayload
-		_ = json.Unmarshal([]byte(raw), &p)
+		if err := json.Unmarshal([]byte(raw), &p); err != nil {
+			slog.Warn("post-game consumer: unmarshal failed, skipping", "msg_id", msg.ID, "error", err)
+			continue
+		}
 		out = append(out, p)
 	}
 	return out, ids, nil

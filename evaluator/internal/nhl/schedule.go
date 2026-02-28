@@ -10,6 +10,8 @@ import (
 
 const scheduleURL = "https://api-web.nhle.com/v1/club-schedule-season/WSH/now"
 
+var httpClient = &http.Client{Timeout: 15 * time.Second}
+
 // CompletedGame is a Caps game that has finished.
 type CompletedGame struct {
 	GameID          int64
@@ -29,8 +31,8 @@ func LastCompletedGame(ctx context.Context) (*CompletedGame, error) {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
+	req.Header.Set("User-Agent", "OvechBot/1.0")
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

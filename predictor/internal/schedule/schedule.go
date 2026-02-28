@@ -10,6 +10,8 @@ import (
 
 const clubScheduleURL = "https://api-web.nhle.com/v1/club-schedule-season/WSH/now"
 
+var httpClient = &http.Client{Timeout: 15 * time.Second}
+
 // Game is the next (or current) Capitals game with ID for reminder idempotency.
 type Game struct {
 	GameID       int64
@@ -42,8 +44,8 @@ func NextGame(ctx context.Context) (*Game, error) {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
+	req.Header.Set("User-Agent", "OvechBot/1.0")
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

@@ -63,6 +63,7 @@ func (c *Client) CareerGoals(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "OvechBot/1.0")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return 0, err
@@ -108,6 +109,7 @@ func (c *Client) currentCapitalsGameFromSchedule(ctx context.Context, states map
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "OvechBot/1.0")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -179,6 +181,7 @@ func (c *Client) NextCapitalsGame(ctx context.Context) (*NextCapitalsGame, error
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "OvechBot/1.0")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -245,6 +248,7 @@ func (c *Client) LastGoalGame(ctx context.Context) (*LastGoalGame, error) {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "OvechBot/1.0")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -280,8 +284,12 @@ func (c *Client) LastGoalGame(ctx context.Context) (*LastGoalGame, error) {
 
 	// Fetch boxscore for opponent name and goalie
 	boxURL := fmt.Sprintf(BoxscoreURLFmt, gameID)
-	req2, _ := http.NewRequestWithContext(ctx, http.MethodGet, boxURL, nil)
+	req2, err := http.NewRequestWithContext(ctx, http.MethodGet, boxURL, nil)
+	if err != nil {
+		return &LastGoalGame{GameDate: gameDate, Opponent: oppAbbrev}, nil
+	}
 	req2.Header.Set("Accept", "application/json")
+	req2.Header.Set("User-Agent", "OvechBot/1.0")
 	resp2, err := c.httpClient.Do(req2)
 	if err != nil {
 		return &LastGoalGame{GameDate: gameDate, Opponent: oppAbbrev}, nil // partial

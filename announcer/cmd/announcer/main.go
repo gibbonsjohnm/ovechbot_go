@@ -12,6 +12,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	_ "time/tzdata" // embed IANA timezone data so LoadLocation("America/New_York") works without system tzdata
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/redis/go-redis/v9"

@@ -11,6 +11,7 @@ const (
 	minGamesForLogistic = 50
 	logisticIters       = 400
 	logisticLR          = 0.15
+	logisticL2          = 0.01 // L2 regularization strength; bias term (w[0]) is excluded
 )
 
 // LogisticPredict trains a logistic regression on the game log (features: home, opp GA ratio, baseline GPG, recent form)
@@ -66,20 +67,75 @@ func LogisticPredict(g *schedule.Game, gameLog []cache.GameLogEntry, standings m
 	if len(samples) < 20 {
 		return -1
 	}
-	// Train: gradient descent on log-loss. w has length 5.
-	w := []float64{0.0, 0.0, 0.0, 0.0, 0.0}
-	for iter := 0; iter < logisticIters; iter++ {
+
+	// Z-score normalize features 1–4 (leave the bias at index 0 unchanged).
+	// Features are on different scales (home ∈ {0,1} vs baselineGPG ∈ ~[0.3,0.8]),
+	// so a single learning rate would converge unevenly without normalization.
+	nFeatures := len(samples[0].x)
+	means := make([]float64, nFeatures)
+	stds := make([]float64, nFeatures)
+	for j := 1; j < nFeatures; j++ {
+		var sum float64
 		for _, s := range samples {
-			z := dot(w, s.x)
-			p := sigmoid(z)
-			// gradient of -[y*log(p)+(1-y)*log(1-p)] = (p-y)*x
-			err := p - s.y
-			for k := range w {
-				w[k] -= logisticLR * err * s.x[k] / float64(len(samples))
-			}
+			sum += s.x[j]
+		}
+		means[j] = sum / float64(len(samples))
+	}
+	for j := 1; j < nFeatures; j++ {
+		var sumSq float64
+		for _, s := range samples {
+			d := s.x[j] - means[j]
+			sumSq += d * d
+		}
+		v := sumSq / float64(len(samples))
+		if v > 0 {
+			stds[j] = math.Sqrt(v)
+		} else {
+			stds[j] = 1.0 // constant feature: avoid division by zero
 		}
 	}
-	// Predict for upcoming game g.
+	normalize := func(x []float64) []float64 {
+		xn := make([]float64, nFeatures)
+		xn[0] = 1.0
+		for j := 1; j < nFeatures; j++ {
+			xn[j] = (x[j] - means[j]) / stds[j]
+		}
+		return xn
+	}
+	scaled := make([]sample, len(samples))
+	for i, s := range samples {
+		scaled[i] = sample{x: normalize(s.x), y: s.y}
+	}
+
+	// Train: batch gradient descent on log-loss with L2 regularization.
+	// The full-batch gradient (summed over all samples, then divided by N) is applied once
+	// per epoch. The original code divided by N inside the per-sample loop, which made the
+	// effective learning rate N× too small and prevented proper convergence.
+	w := make([]float64, nFeatures)
+	grad := make([]float64, nFeatures)
+	nSamples := float64(len(scaled))
+	for iter := 0; iter < logisticIters; iter++ {
+		for k := range grad {
+			grad[k] = 0
+		}
+		for _, s := range scaled {
+			z := dot(w, s.x)
+			p := sigmoid(z)
+			e := p - s.y // gradient of -[y*log(p)+(1-y)*log(1-p)] w.r.t. z is (p-y)*x
+			for k := range w {
+				grad[k] += e * s.x[k]
+			}
+		}
+		for k := range w {
+			l2 := 0.0
+			if k > 0 { // do not regularize the bias term
+				l2 = 2 * logisticL2 * w[k]
+			}
+			w[k] -= logisticLR * (grad[k]/nSamples + l2)
+		}
+	}
+
+	// Predict for upcoming game g using the same feature construction and normalization.
 	baselineGPG := baselineGPGFrom(gameLog, baselineGamesMax)
 	recentGoals := 0
 	n := recentGames
@@ -106,7 +162,7 @@ func LogisticPredict(g *schedule.Game, gameLog []cache.GameLogEntry, standings m
 		home = 1.0
 	}
 	x := []float64{1.0, home, oppGA / leagueAvgGA, baselineGPG, recentRatio}
-	p := sigmoid(dot(w, x))
+	p := sigmoid(dot(w, normalize(x)))
 	pct := int(math.Round(p * 100))
 	if pct < 15 {
 		pct = 15

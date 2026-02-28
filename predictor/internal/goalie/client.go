@@ -156,10 +156,13 @@ func (c *Client) resolveGoalieByName(ctx context.Context, teamAbbrev, fullName s
 	}
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.http.Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK {
+	if err != nil {
 		return 0, ""
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, ""
+	}
 	var roster struct {
 		Goalies []struct {
 			ID        int `json:"id"`

@@ -45,6 +45,7 @@ func (c *Client) CareerGoals(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("new request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "OvechBot/1.0")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -80,6 +81,7 @@ func (c *Client) LastGoalGameInfo(ctx context.Context) (*LastGoalGameInfo, error
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "OvechBot/1.0")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -111,8 +113,12 @@ func (c *Client) LastGoalGameInfo(ctx context.Context) (*LastGoalGameInfo, error
 		return nil, nil
 	}
 	boxURL := fmt.Sprintf(BoxscoreURLFmt, gameID)
-	req2, _ := http.NewRequestWithContext(ctx, http.MethodGet, boxURL, nil)
+	req2, err := http.NewRequestWithContext(ctx, http.MethodGet, boxURL, nil)
+	if err != nil {
+		return &LastGoalGameInfo{Opponent: oppAbbrev}, nil
+	}
 	req2.Header.Set("Accept", "application/json")
+	req2.Header.Set("User-Agent", "OvechBot/1.0")
 	resp2, err := c.httpClient.Do(req2)
 	if err != nil {
 		return &LastGoalGameInfo{Opponent: oppAbbrev}, nil

@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 
 	"ovechbot_go/predictor/internal/schedule"
 )
@@ -24,7 +23,6 @@ var opponentNameFragment = map[string]string{
 
 const (
 	dfoURLFmt     = "https://www.dailyfaceoff.com/starting-goalies/%s"
-	dfoTimeout    = 15 * time.Second
 	capitalsMatch = "Washington"
 )
 
@@ -49,8 +47,7 @@ func (c *Client) OpposingStarterFromDFO(ctx context.Context, g *schedule.Game) s
 	}
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
 	req.Header.Set("User-Agent", "OvechBot/1.0 (NHL starting goalie fallback)")
-	client := &http.Client{Timeout: dfoTimeout}
-	resp, err := client.Do(req)
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return ""
 	}

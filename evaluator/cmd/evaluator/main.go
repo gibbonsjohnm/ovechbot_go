@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"strconv"
 	"time"
@@ -106,6 +107,17 @@ func run(rdb *redis.Client) {
 		result = "Hit"
 	}
 
+	// Brier score: (predicted_prob - actual)^2; lower is better (0 = perfect, 0.25 = random).
+	// Stored in the calibration log alongside hit/miss for a proper scoring-rule view of accuracy.
+	brierScore := 0.0
+	if predPct > 0 {
+		scoredFloat := 0.0
+		if scored {
+			scoredFloat = 1.0
+		}
+		brierScore = math.Pow(float64(predPct)/100-scoredFloat, 2)
+	}
+
 	actualStr := "no goal"
 	if scored {
 		actualStr = "scored"
@@ -124,7 +136,7 @@ func run(rdb *redis.Client) {
 		msg += "_(No prediction snapshot for this game)_\n"
 	}
 
-	slog.Info("evaluator: publishing post-game summary", "game_id", game.GameID, "result", result)
+	slog.Info("evaluator: publishing post-game summary", "game_id", game.GameID, "result", result, "brier_score", brierScore)
 
 	// Append to calibration log for predictor (predicted % vs actual 0/1) so it can tune scale.
 	if predPct > 0 {
@@ -133,10 +145,11 @@ func run(rdb *redis.Client) {
 			scoredInt = 1
 		}
 		calEntry, _ := json.Marshal(struct {
-			GameID  int64 `json:"game_id"`
-			PredPct int   `json:"pred_pct"`
-			Scored  int   `json:"scored"`
-		}{GameID: game.GameID, PredPct: predPct, Scored: scoredInt})
+			GameID     int64   `json:"game_id"`
+			PredPct    int     `json:"pred_pct"`
+			Scored     int     `json:"scored"`
+			BrierScore float64 `json:"brier_score"`
+		}{GameID: game.GameID, PredPct: predPct, Scored: scoredInt, BrierScore: brierScore})
 		if err := rdb.LPush(ctx, calibrationLogKey, string(calEntry)).Err(); err == nil {
 			_ = rdb.LTrim(ctx, calibrationLogKey, 0, 99).Err()
 		}

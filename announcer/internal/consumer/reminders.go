@@ -3,6 +3,7 @@ package consumer
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -58,9 +59,16 @@ func (c *ReminderConsumer) ReadReminders(ctx context.Context) ([]ReminderPayload
 	var ids []string
 	for _, msg := range streams[0].Messages {
 		ids = append(ids, msg.ID)
-		raw, _ := msg.Values["payload"].(string)
+		raw, ok := msg.Values["payload"].(string)
+		if !ok {
+			slog.Warn("reminders consumer: invalid payload type, skipping", "msg_id", msg.ID)
+			continue
+		}
 		var p ReminderPayload
-		_ = json.Unmarshal([]byte(raw), &p)
+		if err := json.Unmarshal([]byte(raw), &p); err != nil {
+			slog.Warn("reminders consumer: unmarshal failed, skipping", "msg_id", msg.ID, "error", err)
+			continue
+		}
 		out = append(out, p)
 	}
 	return out, ids, nil
