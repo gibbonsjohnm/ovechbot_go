@@ -181,6 +181,34 @@ func TestCurrentCapitalsGame_NotInProgress(t *testing.T) {
 	}
 }
 
+func TestCurrentLiveCapitalsGame_PreGameReturnsNil(t *testing.T) {
+	// PRE (pre-game) should not show "Watching" in bot status; only LIVE/CRIT should.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"gameWeek":[{"games":[{"gameState":"PRE","homeTeam":{"abbrev":"WSH"},"awayTeam":{"abbrev":"VGK"}}]}]}`))
+	}))
+	defer server.Close()
+
+	client := &Client{
+		httpClient: &http.Client{
+			Transport: &roundTripperFunc{fn: func(req *http.Request) (*http.Response, error) {
+				req.URL.Host = server.Listener.Addr().String()
+				req.URL.Scheme = "http"
+				return http.DefaultTransport.RoundTrip(req)
+			}},
+		},
+	}
+	ctx := context.Background()
+	game, err := client.CurrentLiveCapitalsGame(ctx)
+	if err != nil {
+		t.Fatalf("CurrentLiveCapitalsGame: %v", err)
+	}
+	if game != nil {
+		t.Errorf("expected nil when game is PRE (status should not show Watching yet), got %+v", game)
+	}
+}
+
 func TestLastGoalGame_FromLanding(t *testing.T) {
 	landingCalled := false
 	boxscoreCalled := false

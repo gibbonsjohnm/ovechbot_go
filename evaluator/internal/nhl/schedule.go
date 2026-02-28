@@ -19,7 +19,10 @@ type CompletedGame struct {
 	OpponentAbbrev  string
 }
 
-// LastCompletedGame returns the most recent Capitals game with state OFF (finished). Nil if none.
+// CompletedGameStates are schedule gameState values for finished games (NHL API uses FINAL; OFF also accepted).
+var CompletedGameStates = map[string]bool{"FINAL": true, "OFF": true}
+
+// LastCompletedGame returns the most recent Capitals game with state FINAL or OFF (finished). Nil if none.
 func LastCompletedGame(ctx context.Context) (*CompletedGame, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scheduleURL, nil)
 	if err != nil {
@@ -52,7 +55,7 @@ func LastCompletedGame(ctx context.Context) (*CompletedGame, error) {
 	var last *CompletedGame
 	var lastStart time.Time
 	for _, g := range sched.Games {
-		if g.GameState != "OFF" {
+		if !CompletedGameStates[g.GameState] {
 			continue
 		}
 		start, err := time.Parse(time.RFC3339, g.StartTimeUTC)

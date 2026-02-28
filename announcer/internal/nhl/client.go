@@ -96,9 +96,13 @@ var InProgressGameStates = map[string]bool{
 	"LIVE": true, "PRE": true, "CRIT": true,
 }
 
-// CurrentCapitalsGame fetches the schedule and returns a Capitals game only when it is in progress (LIVE/PRE/CRIT).
-// Returns nil when the Capitals are not playing right now (no WSH game in that state in the schedule window).
-func (c *Client) CurrentCapitalsGame(ctx context.Context) (*CurrentCapitalsGame, error) {
+// LiveGameStates are states where the game is actually in play (not pre-game). Use for bot status so we don't show "Watching" 15+ min early.
+var LiveGameStates = map[string]bool{
+	"LIVE": true, "CRIT": true,
+}
+
+// currentCapitalsGameFromSchedule returns a Capitals game from the schedule-now API when gameState is in the given state set.
+func (c *Client) currentCapitalsGameFromSchedule(ctx context.Context, states map[string]bool) (*CurrentCapitalsGame, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ScheduleNowURL, nil)
 	if err != nil {
 		return nil, err
@@ -130,7 +134,7 @@ func (c *Client) CurrentCapitalsGame(ctx context.Context) (*CurrentCapitalsGame,
 	}
 	for _, week := range sched.GameWeek {
 		for _, g := range week.Games {
-			if !InProgressGameStates[g.GameState] {
+			if !states[g.GameState] {
 				continue
 			}
 			if g.HomeTeam.Abbrev == CapitalsAbbrev || g.AwayTeam.Abbrev == CapitalsAbbrev {
@@ -142,6 +146,18 @@ func (c *Client) CurrentCapitalsGame(ctx context.Context) (*CurrentCapitalsGame,
 		}
 	}
 	return nil, nil
+}
+
+// CurrentCapitalsGame fetches the schedule and returns a Capitals game only when it is in progress (LIVE/PRE/CRIT).
+// Returns nil when the Capitals are not playing right now (no WSH game in that state in the schedule window).
+func (c *Client) CurrentCapitalsGame(ctx context.Context) (*CurrentCapitalsGame, error) {
+	return c.currentCapitalsGameFromSchedule(ctx, InProgressGameStates)
+}
+
+// CurrentLiveCapitalsGame returns a Capitals game only when it is actually live (LIVE/CRIT), not during pre-game (PRE).
+// Use for bot status so "Watching WSH vs VGK" appears at puck drop, not 15+ minutes early.
+func (c *Client) CurrentLiveCapitalsGame(ctx context.Context) (*CurrentCapitalsGame, error) {
+	return c.currentCapitalsGameFromSchedule(ctx, LiveGameStates)
 }
 
 // NextCapitalsGame holds the next (or current) Capitals game from the season schedule.

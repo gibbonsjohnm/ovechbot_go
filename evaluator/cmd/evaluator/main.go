@@ -48,7 +48,7 @@ func main() {
 	}
 }
 
-// run checks for the most recent completed Caps game (state OFF), fetches boxscore
+// run checks for the most recent completed Caps game (state FINAL/OFF), fetches boxscore
 // and prediction data, and publishes exactly one post-game message per game to Redis.
 // The announcer consumes from ovechkin:post_game and posts to Discord. last_reported
 // is updated only after a successful publish so we never send repeatedly for the same game.
@@ -61,7 +61,7 @@ func run(rdb *redis.Client) {
 		return
 	}
 
-	// Only consider games that have ended (schedule shows OFF).
+	// Only consider games that have ended (schedule shows FINAL or OFF).
 	game, err := nhl.LastCompletedGame(ctx)
 	if err != nil {
 		slog.Warn("evaluator: last completed game failed", "error", err)

@@ -322,7 +322,7 @@ func runStatusUpdates(ctx context.Context, bot *discord.Bot, nhlClient *nhl.Clie
 	ticker := time.NewTicker(3 * time.Minute)
 	defer ticker.Stop()
 	update := func() {
-		game, err := nhlClient.CurrentCapitalsGame(ctx)
+		game, err := nhlClient.CurrentLiveCapitalsGame(ctx)
 		if err != nil {
 			slog.Warn("status update: fetch schedule failed", "error", err)
 			return
