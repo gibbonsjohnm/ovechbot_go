@@ -45,8 +45,8 @@ func (c *Client) OpposingStarterFromDFO(ctx context.Context, g *schedule.Game) s
 	if err != nil {
 		return ""
 	}
-	req.Header.Set("Accept", "text/html,application/xhtml+xml")
-	req.Header.Set("User-Agent", "OvechBot/1.0 (NHL starting goalie fallback)")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; OvechBot/1.0; +https://github.com/ovechbot) Chrome/120.0.0.0")
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return ""
@@ -67,8 +67,10 @@ func (c *Client) OpposingStarterFromDFO(ctx context.Context, g *schedule.Game) s
 // DFO lists games as "Away Team at Home Team" with away goalie first, home goalie second.
 func parseDFOGoalieName(html []byte, opponentFragment string, capsAreHome bool) string {
 	text := string(html)
+	textLower := strings.ToLower(text)
+	oppLower := strings.ToLower(opponentFragment)
 	// Find block that contains both Washington and the opponent (e.g. "Philadelphia").
-	if !strings.Contains(text, capitalsMatch) || !strings.Contains(text, opponentFragment) {
+	if !strings.Contains(text, capitalsMatch) || !strings.Contains(textLower, oppLower) {
 		return ""
 	}
 	// Match goalie names: "FirstName LastName" or "I. LastName" (DFO sometimes abbreviates).
@@ -79,12 +81,17 @@ func parseDFOGoalieName(html []byte, opponentFragment string, capsAreHome bool) 
 		"Unknown": true, "Washington Capitals": true, "Philadelphia Flyers": true,
 		"Tarik El-Bashir": true, // Caps reporter often in DFO source links; not a goalie
 	}
-	// Find the matchup row: both "Washington" and opponent in the same ~120 char window.
-	const matchupWindow = 120
+	// Find the matchup row: both "Washington" and opponent in the same window (HTML can have tags between words).
+	const matchupWindow = 220
 	gameBlockStart := -1
-	for i := 0; i <= len(text)-matchupWindow; i++ {
-		window := text[i : i+matchupWindow]
-		if strings.Contains(window, capitalsMatch) && strings.Contains(window, opponentFragment) {
+	windowLen := matchupWindow
+	if len(text) < windowLen {
+		windowLen = len(text)
+	}
+	for i := 0; i <= len(text)-windowLen; i++ {
+		window := text[i : i+windowLen]
+		windowLower := strings.ToLower(window)
+		if strings.Contains(window, capitalsMatch) && strings.Contains(windowLower, oppLower) {
 			gameBlockStart = i
 			break
 		}
@@ -92,8 +99,8 @@ func parseDFOGoalieName(html []byte, opponentFragment string, capsAreHome bool) 
 	if gameBlockStart < 0 {
 		return ""
 	}
-	// Limit block so we don't pick goalies from the next game (next " at " matchup is ~400+ chars away).
-	const gameBlockLen = 1400
+	// Limit block so we don't pick goalies from the next game.
+	const gameBlockLen = 2800
 	blockEnd := gameBlockStart + gameBlockLen
 	if blockEnd > len(text) {
 		blockEnd = len(text)
@@ -131,7 +138,8 @@ func parseDFOGoalieName(html []byte, opponentFragment string, capsAreHome bool) 
 			lookaheadEnd = len(block)
 		}
 		lookahead := block[loc[1]:lookaheadEnd]
-		if !strings.Contains(lookahead, "Confirmed") && !strings.Contains(lookahead, "Likely") && !strings.Contains(lookahead, "Unconfirmed") {
+		if !strings.Contains(lookahead, "Confirmed") && !strings.Contains(lookahead, "Likely") &&
+			!strings.Contains(lookahead, "Unconfirmed") && !strings.Contains(lookahead, "Projected") {
 			continue
 		}
 		inBlock = append(inBlock, name)
