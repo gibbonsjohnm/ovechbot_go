@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -52,7 +53,9 @@ func (c *Client) OpposingStarter(ctx context.Context, g *schedule.Game) (*Info, 
 	}
 	playerID, displayName := c.resolveGoalieByName(ctx, g.Opponent(), dfoName)
 	if playerID == 0 {
-		return &Info{Name: dfoName, SavePct: 0}, nil
+		// DFO name not found on opponent's roster — likely the wrong goalie was parsed.
+		slog.Warn("goalie: DFO name not found on opponent roster, discarding", "dfo_name", dfoName, "opponent", g.Opponent())
+		return nil, nil
 	}
 	savePct, _ := c.playerSavePct(ctx, playerID)
 	if displayName == "" {
@@ -223,12 +226,31 @@ func (c *Client) playerSavePct(ctx context.Context, playerID int) (float64, erro
 				} `json:"subSeason"`
 			} `json:"regularSeason"`
 		} `json:"featuredStats"`
+		SeasonTotals []struct {
+			Season     int     `json:"season"`
+			GameTypeID int     `json:"gameTypeId"`
+			SavePctg   float64 `json:"savePctg"`
+		} `json:"seasonTotals"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&landing); err != nil {
 		return 0, err
 	}
 	if landing.FeaturedStats != nil && landing.FeaturedStats.RegularSeason != nil && landing.FeaturedStats.RegularSeason.SubSeason != nil {
-		return landing.FeaturedStats.RegularSeason.SubSeason.SavePctg, nil
+		if pct := landing.FeaturedStats.RegularSeason.SubSeason.SavePctg; pct > 0 {
+			return pct, nil
+		}
 	}
-	return 0, nil
+	// featuredStats is absent for backup/inactive goalies; fall back to the most recent regular-season entry.
+	var bestSeason int
+	var bestPct float64
+	for _, s := range landing.SeasonTotals {
+		if s.GameTypeID != 2 { // 2 = regular season
+			continue
+		}
+		if s.Season > bestSeason && s.SavePctg > 0 {
+			bestSeason = s.Season
+			bestPct = s.SavePctg
+		}
+	}
+	return bestPct, nil
 }

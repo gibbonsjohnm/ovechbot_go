@@ -116,7 +116,16 @@ func parseDFOGoalieName(html []byte, opponentFragment string, capsAreHome bool) 
 			strings.HasSuffix(name, "Avalanche") || strings.HasSuffix(name, "Mammoth") ||
 			strings.HasSuffix(name, "Jets") || strings.HasSuffix(name, "Canucks") ||
 			strings.HasSuffix(name, "Knights") || strings.HasSuffix(name, "Kings") ||
-			strings.HasSuffix(name, "Oilers") || strings.HasSuffix(name, "Ducks") {
+			strings.HasSuffix(name, "Oilers") || strings.HasSuffix(name, "Ducks") ||
+			strings.HasSuffix(name, "Bruins") || strings.HasSuffix(name, "Canadiens") ||
+			strings.HasSuffix(name, "Senators") || strings.HasSuffix(name, "Leafs") ||
+			strings.HasSuffix(name, "Rangers") || strings.HasSuffix(name, "Islanders") ||
+			strings.HasSuffix(name, "Hurricanes") || strings.HasSuffix(name, "Panthers") ||
+			strings.HasSuffix(name, "Lightning") || strings.HasSuffix(name, "Jackets") ||
+			strings.HasSuffix(name, "Wings") || strings.HasSuffix(name, "Predators") ||
+			strings.HasSuffix(name, "Blues") || strings.HasSuffix(name, "Wild") ||
+			strings.HasSuffix(name, "Flames") || strings.HasSuffix(name, "Sharks") ||
+			strings.HasSuffix(name, "Penguins") {
 			continue
 		}
 		inBlock = append(inBlock, name)
