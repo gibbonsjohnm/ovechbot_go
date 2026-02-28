@@ -99,14 +99,16 @@ func parseDFOGoalieName(html []byte, opponentFragment string, capsAreHome bool) 
 			return ""
 		}
 	}
-	// From the start of this game block, collect first two goalie names in order (away, home).
-	// We already collected all names; we need the two that appear after our matchup. Use a simple approach:
-	// take the first two names that appear after the matchup text in the HTML.
+	// From the start of this game block, collect the first two names that are actual goalie
+	// entries — identified by a status word (Confirmed/Likely/Unconfirmed) appearing within
+	// 400 chars after the name. This prevents matching journalist bylines, coach names, or
+	// other two-word capitalized strings that appear elsewhere on the page.
 	gameBlockStart := min(idx, idxOpp)
 	block := text[gameBlockStart:]
+	nameMatches := namePat.FindAllStringIndex(block, -1)
 	var inBlock []string
-	for _, m := range namePat.FindAllString(block, -1) {
-		name := strings.Trim(m, "><")
+	for _, loc := range nameMatches {
+		name := strings.Trim(block[loc[0]:loc[1]], "><")
 		if len(name) < 4 || skip[name] {
 			continue
 		}
@@ -126,6 +128,16 @@ func parseDFOGoalieName(html []byte, opponentFragment string, capsAreHome bool) 
 			strings.HasSuffix(name, "Blues") || strings.HasSuffix(name, "Wild") ||
 			strings.HasSuffix(name, "Flames") || strings.HasSuffix(name, "Sharks") ||
 			strings.HasSuffix(name, "Penguins") {
+			continue
+		}
+		// Require a goalie status word within 400 chars after this name — filters out
+		// journalist names, analyst bylines, and other non-goalie two-word strings.
+		lookaheadEnd := loc[1] + 400
+		if lookaheadEnd > len(block) {
+			lookaheadEnd = len(block)
+		}
+		lookahead := block[loc[1]:lookaheadEnd]
+		if !strings.Contains(lookahead, "Confirmed") && !strings.Contains(lookahead, "Likely") && !strings.Contains(lookahead, "Unconfirmed") {
 			continue
 		}
 		inBlock = append(inBlock, name)
