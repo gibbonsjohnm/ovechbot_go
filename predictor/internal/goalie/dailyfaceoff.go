@@ -71,40 +71,34 @@ func parseDFOGoalieName(html []byte, opponentFragment string, capsAreHome bool) 
 	if !strings.Contains(text, capitalsMatch) || !strings.Contains(text, opponentFragment) {
 		return ""
 	}
-	// Match "FirstName LastName" patterns that look like goalie names (2+ word names).
+	// Match goalie names: "FirstName LastName" or "I. LastName" (DFO sometimes abbreviates).
 	// DFO order: away goalie, then home goalie.
-	namePat := regexp.MustCompile(`>[A-Z][a-z]+(?:-[A-Z][a-z]+)? [A-Z][a-z]+(?:-[A-Z][a-z]+)?<`)
+	namePat := regexp.MustCompile(`>(?:[A-Z][a-z]+(?:-[A-Z][a-z]+)? [A-Z][a-z]+(?:-[A-Z][a-z]+)?|[A-Z]\. [A-Z][a-z]+(?:-[A-Z][a-z]+)?)<`)
 	skip := map[string]bool{
 		"Show More": true, "Line Combos": true, "Confirmed": true, "Likely": true,
 		"Unknown": true, "Washington Capitals": true, "Philadelphia Flyers": true,
+		"Tarik El-Bashir": true, // Caps reporter often in DFO source links; not a goalie
 	}
-	idx := strings.Index(text, capitalsMatch)
-	if idx < 0 {
-		return ""
-	}
-	idxOpp := strings.Index(text, opponentFragment)
-	if idxOpp < 0 {
-		return ""
-	}
-	// Same game block: capitals and opponent should be within ~200 chars (e.g. "Philadelphia Flyers at Washington Capitals").
-	if idx > idxOpp+200 || idxOpp > idx+200 {
-		// Try to find a block where both are close (e.g. "PHI at WSH" style).
-		window := text
-		if idxOpp > idx {
-			window = text[idx:min(len(text), idxOpp+150)]
-		} else {
-			window = text[idxOpp:min(len(text), idx+150)]
-		}
-		if !strings.Contains(window, capitalsMatch) || !strings.Contains(window, opponentFragment) {
-			return ""
+	// Find the matchup row: both "Washington" and opponent in the same ~120 char window.
+	const matchupWindow = 120
+	gameBlockStart := -1
+	for i := 0; i <= len(text)-matchupWindow; i++ {
+		window := text[i : i+matchupWindow]
+		if strings.Contains(window, capitalsMatch) && strings.Contains(window, opponentFragment) {
+			gameBlockStart = i
+			break
 		}
 	}
-	// From the start of this game block, collect the first two names that are actual goalie
-	// entries — identified by a status word (Confirmed/Likely/Unconfirmed) appearing within
-	// 400 chars after the name. This prevents matching journalist bylines, coach names, or
-	// other two-word capitalized strings that appear elsewhere on the page.
-	gameBlockStart := min(idx, idxOpp)
-	block := text[gameBlockStart:]
+	if gameBlockStart < 0 {
+		return ""
+	}
+	// Limit block so we don't pick goalies from the next game (next " at " matchup is ~400+ chars away).
+	const gameBlockLen = 1400
+	blockEnd := gameBlockStart + gameBlockLen
+	if blockEnd > len(text) {
+		blockEnd = len(text)
+	}
+	block := text[gameBlockStart:blockEnd]
 	nameMatches := namePat.FindAllStringIndex(block, -1)
 	var inBlock []string
 	for _, loc := range nameMatches {

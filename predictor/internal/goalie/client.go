@@ -47,8 +47,10 @@ func (c *Client) OpposingStarter(ctx context.Context, g *schedule.Game) (*Info, 
 		return info, nil
 	}
 	// Boxscore has no goalies yet; try Daily Faceoff for projected/confirmed starter.
+	slog.Info("goalie: boxscore has no goalies, trying Daily Faceoff", "game_id", g.GameID, "opponent", g.Opponent())
 	dfoName := c.OpposingStarterFromDFO(ctx, g)
 	if dfoName == "" {
+		slog.Info("goalie: Daily Faceoff returned no name for this game", "game_id", g.GameID)
 		return nil, nil
 	}
 	playerID, displayName := c.resolveGoalieByName(ctx, g.Opponent(), dfoName)
