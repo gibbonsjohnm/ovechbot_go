@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"ovechbot_go/predictor/internal/schedule"
@@ -67,14 +68,46 @@ func (c *Client) OpposingStarterFromPuckPedia(ctx context.Context, g *schedule.G
 	if err != nil {
 		return ""
 	}
-	return parsePuckPediaGoalieName(body, frag, g.IsHome())
+	return parsePuckPediaGoalieName(body, frag, g.IsHome(), g.GameID)
 }
 
-// parsePuckPediaGoalieName finds the Caps game block (Washington/Capitals + opponent) and returns
-// the away goalie name if capsAreHome else the home goalie name. PuckPedia shows "#79 Charlie Lindgren"
-// and "#75 Jakub Dobes" style; we look for full "FirstName LastName" with CONFIRMED/PROJECTED nearby.
-func parsePuckPediaGoalieName(html []byte, opponentFragment string, capsAreHome bool) string {
+// parsePuckPediaByGameID finds the game by ID in the embedded JSON and returns the opposing goalie's last name.
+// PuckPedia embeds escaped JSON: \"lastName\":\"Dobes\" (home then away for that game).
+// resolveGoalieByName accepts last name only and matches on roster.
+func parsePuckPediaByGameID(text string, gameID int64, capsAreHome bool) string {
+	idStr := strconv.FormatInt(gameID, 10)
+	idx := strings.Index(text, idStr)
+	if idx < 0 {
+		return ""
+	}
+	block := text[idx:]
+	if len(block) > 1500 {
+		block = block[:1500]
+	}
+	// Match \"lastName\":\"Name\" or "lastName":"Name"
+	re := regexp.MustCompile(`\\?"lastName\\?"\s*:\s*\\?"([^"\\]+)\\?"`)
+	matches := re.FindAllStringSubmatch(block, 2)
+	if len(matches) < 2 {
+		return ""
+	}
+	homeLastName := strings.TrimSpace(matches[0][1])
+	awayLastName := strings.TrimSpace(matches[1][1])
+	if capsAreHome {
+		return awayLastName // opponent is away
+	}
+	return homeLastName // opponent is home
+}
+
+// parsePuckPediaGoalieName finds the Caps game and returns the opposing goalie name.
+// It first tries JSON extraction by game ID (page embeds matchupSummaries with "id":"2025020940", home/away goalie lastName).
+// If that fails, it falls back to HTML parsing (Caps + opponent block, then #N FirstName LastName or two-word names).
+func parsePuckPediaGoalieName(html []byte, opponentFragment string, capsAreHome bool, gameID int64) string {
 	text := string(html)
+	if gameID != 0 {
+		if name := parsePuckPediaByGameID(text, gameID, capsAreHome); name != "" {
+			return name
+		}
+	}
 	textLower := strings.ToLower(text)
 	oppLower := strings.ToLower(opponentFragment)
 	// Page may use "WAS"/"Capitals" not "Washington", and "Canadiens"/"MTL" not "Montreal".
