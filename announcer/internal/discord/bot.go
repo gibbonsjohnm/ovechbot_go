@@ -73,12 +73,16 @@ func GoalAnnouncementDescriptionWithEnrichment(goals int, goalieName, opponentNa
 	return base
 }
 
-// StatusNameForGame returns the "Watching" activity name: "HOME vs AWAY" or "Nothing :(" when no live Capitals game (testable).
-func StatusNameForGame(homeAbbrev, awayAbbrev string) string {
-	if homeAbbrev != "" && awayAbbrev != "" {
-		return homeAbbrev + " vs " + awayAbbrev
+// StatusNameForGame returns the "Watching" activity name: "AWAY @ HOME" or "AWAY (1) @ HOME (3)" when scores are provided (awayScore/homeScore >= 0).
+// Pass awayScore and homeScore as -1 when not available.
+func StatusNameForGame(awayAbbrev, homeAbbrev string, awayScore, homeScore int) string {
+	if awayAbbrev == "" || homeAbbrev == "" {
+		return "Nothing :("
 	}
-	return "Nothing :("
+	if awayScore >= 0 && homeScore >= 0 {
+		return fmt.Sprintf("%s (%d) @ %s (%d)", awayAbbrev, awayScore, homeAbbrev, homeScore)
+	}
+	return awayAbbrev + " @ " + homeAbbrev
 }
 
 // PostGoalAnnouncement sends a rich embed to the announce channel when Ovechkin scores.
@@ -211,16 +215,16 @@ func (b *Bot) AddInteractionHandler(handler func(s *discordgo.Session, i *discor
 	b.session.AddHandler(handler)
 }
 
-// SetWatchingStatus sets the bot's activity to "Watching HOME vs AWAY" when a live Capitals game is on, or "Nothing :(" when not.
-// Pass empty strings for both when no live Capitals game.
-func (b *Bot) SetWatchingStatus(homeAbbrev, awayAbbrev string) error {
+// SetWatchingStatus sets the bot's activity to "Watching AWAY @ HOME" or "Watching AWAY (1) @ HOME (3)" when a live Capitals game is on.
+// Pass empty strings for both abbrevs when no live game. Use awayScore/homeScore >= 0 when scores are available, else -1.
+func (b *Bot) SetWatchingStatus(awayAbbrev, homeAbbrev string, awayScore, homeScore int) error {
 	b.mu.Lock()
 	s := b.session
 	b.mu.Unlock()
 	if s == nil {
 		return nil
 	}
-	name := StatusNameForGame(homeAbbrev, awayAbbrev)
+	name := StatusNameForGame(awayAbbrev, homeAbbrev, awayScore, homeScore)
 	return s.UpdateStatusComplex(discordgo.UpdateStatusData{
 		Status: "online",
 		Activities: []*discordgo.Activity{

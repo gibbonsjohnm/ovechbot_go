@@ -92,3 +92,54 @@ func TestNewProducer(t *testing.T) {
 		t.Error("NewProducer failed")
 	}
 }
+
+func TestMarkGoalSeen(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer rdb.Close()
+
+	ctx := context.Background()
+	producer := NewProducer(rdb)
+	gameID := 2025020123
+
+	// First time: not seen
+	seen, err := producer.MarkGoalSeen(ctx, gameID, 920)
+	if err != nil {
+		t.Fatalf("MarkGoalSeen: %v", err)
+	}
+	if seen {
+		t.Error("first call should report not already seen")
+	}
+
+	// Second time: already seen
+	seen, err = producer.MarkGoalSeen(ctx, gameID, 920)
+	if err != nil {
+		t.Fatalf("MarkGoalSeen: %v", err)
+	}
+	if !seen {
+		t.Error("second call should report already seen")
+	}
+
+	// Different goal in same game: not seen
+	seen, err = producer.MarkGoalSeen(ctx, gameID, 921)
+	if err != nil {
+		t.Fatalf("MarkGoalSeen: %v", err)
+	}
+	if seen {
+		t.Error("different goalsToDate should report not already seen")
+	}
+
+	// Different game: not seen (per-game key)
+	seen, err = producer.MarkGoalSeen(ctx, gameID+1, 920)
+	if err != nil {
+		t.Fatalf("MarkGoalSeen: %v", err)
+	}
+	if seen {
+		t.Error("same goalsToDate in different game should report not already seen")
+	}
+}

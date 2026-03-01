@@ -16,15 +16,23 @@ func TestNewBot_EmptyToken(t *testing.T) {
 }
 
 func TestStatusNameForGame_WhenPlaying(t *testing.T) {
-	got := StatusNameForGame("WSH", "PHI")
-	want := "WSH vs PHI"
+	got := StatusNameForGame("WSH", "PHI", -1, -1)
+	want := "WSH @ PHI"
 	if got != want {
-		t.Errorf("StatusNameForGame(WSH, PHI) = %q; want %q", got, want)
+		t.Errorf("StatusNameForGame(WSH, PHI, -1, -1) = %q; want %q", got, want)
+	}
+}
+
+func TestStatusNameForGame_WithScores(t *testing.T) {
+	got := StatusNameForGame("WSH", "MTL", 1, 3)
+	want := "WSH (1) @ MTL (3)"
+	if got != want {
+		t.Errorf("StatusNameForGame(WSH, MTL, 1, 3) = %q; want %q", got, want)
 	}
 }
 
 func TestStatusNameForGame_WhenNotPlaying(t *testing.T) {
-	got := StatusNameForGame("", "")
+	got := StatusNameForGame("", "", -1, -1)
 	want := "Nothing :("
 	if got != want {
 		t.Errorf("StatusNameForGame(_, _) = %q; want %q", got, want)
@@ -32,7 +40,7 @@ func TestStatusNameForGame_WhenNotPlaying(t *testing.T) {
 }
 
 func TestStatusNameForGame_Partial(t *testing.T) {
-	got := StatusNameForGame("WSH", "")
+	got := StatusNameForGame("WSH", "", -1, -1)
 	if got != "Nothing :(" {
 		t.Errorf("one empty should yield Nothing :(: %q", got)
 	}

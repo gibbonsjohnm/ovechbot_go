@@ -318,21 +318,23 @@ func runReminderConsumer(ctx context.Context, rem *consumer.ReminderConsumer, bo
 	}
 }
 
-// runStatusUpdates periodically sets the bot status to "Watching HOME vs AWAY" or "Watching the NHL".
+// runStatusUpdates periodically sets the bot status to "Watching AWAY @ HOME" or "Watching AWAY (1) @ HOME (3)".
 func runStatusUpdates(ctx context.Context, bot *discord.Bot, nhlClient *nhl.Client) {
 	ticker := time.NewTicker(3 * time.Minute)
 	defer ticker.Stop()
 	update := func() {
-		game, err := nhlClient.CurrentLiveCapitalsGame(ctx)
+		game, err := nhlClient.CurrentLiveCapitalsGameWithScore(ctx)
 		if err != nil {
-			slog.Warn("status update: fetch schedule failed", "error", err)
+			slog.Warn("status update: fetch score/now failed", "error", err)
 			return
 		}
-		home, away := "", ""
+		away, home := "", ""
+		awayScore, homeScore := -1, -1
 		if game != nil {
-			home, away = game.HomeAbbrev, game.AwayAbbrev
+			away, home = game.AwayAbbrev, game.HomeAbbrev
+			awayScore, homeScore = game.AwayScore, game.HomeScore
 		}
-		if err := bot.SetWatchingStatus(home, away); err != nil {
+		if err := bot.SetWatchingStatus(away, home, awayScore, homeScore); err != nil {
 			slog.Warn("status update failed", "error", err)
 		}
 	}

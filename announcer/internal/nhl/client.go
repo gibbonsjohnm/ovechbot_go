@@ -10,12 +10,13 @@ import (
 )
 
 const (
-	OvechkinPlayerID    = 8471214
-	CapitalsAbbrev      = "WSH"
-	LandingURLFmt       = "https://api-web.nhle.com/v1/player/%d/landing"
-	BoxscoreURLFmt      = "https://api-web.nhle.com/v1/gamecenter/%d/boxscore"
-	ScheduleNowURL      = "https://api-web.nhle.com/v1/schedule/now"
-	ClubScheduleSeason  = "https://api-web.nhle.com/v1/club-schedule-season/" + CapitalsAbbrev + "/now"
+	OvechkinPlayerID   = 8471214
+	CapitalsAbbrev     = "WSH"
+	LandingURLFmt      = "https://api-web.nhle.com/v1/player/%d/landing"
+	BoxscoreURLFmt     = "https://api-web.nhle.com/v1/gamecenter/%d/boxscore"
+	ScheduleNowURL     = "https://api-web.nhle.com/v1/schedule/now"
+	ScoreNowURL        = "https://api-web.nhle.com/v1/score/now"
+	ClubScheduleSeason = "https://api-web.nhle.com/v1/club-schedule-season/" + CapitalsAbbrev + "/now"
 )
 
 // venueJSON unmarshals venue from either a string or an object {"default": "Venue Name"}.
@@ -86,10 +87,13 @@ func (c *Client) CareerGoals(ctx context.Context) (int, error) {
 	return landing.CareerTotals.RegularSeason.Goals, nil
 }
 
-// CurrentCapitalsGame holds the current or next Capitals game for bot status (HOME vs AWAY).
+// CurrentCapitalsGame holds the current or next Capitals game for bot status (e.g. WSH @ MTL).
+// HomeScore and AwayScore are from the score/now API when available; use -1 when unknown.
 type CurrentCapitalsGame struct {
 	HomeAbbrev string // e.g. "WSH"
 	AwayAbbrev string // e.g. "PHI"
+	HomeScore  int    // -1 when not available
+	AwayScore  int    // -1 when not available
 }
 
 // InProgressGameStates are schedule gameState values meaning the game is on now (or pre-game).
@@ -143,6 +147,8 @@ func (c *Client) currentCapitalsGameFromSchedule(ctx context.Context, states map
 				return &CurrentCapitalsGame{
 					HomeAbbrev: g.HomeTeam.Abbrev,
 					AwayAbbrev: g.AwayTeam.Abbrev,
+					HomeScore:  -1,
+					AwayScore:  -1,
 				}, nil
 			}
 		}
@@ -160,6 +166,55 @@ func (c *Client) CurrentCapitalsGame(ctx context.Context) (*CurrentCapitalsGame,
 // Use for bot status so "Watching WSH vs VGK" appears at puck drop, not 15+ minutes early.
 func (c *Client) CurrentLiveCapitalsGame(ctx context.Context) (*CurrentCapitalsGame, error) {
 	return c.currentCapitalsGameFromSchedule(ctx, LiveGameStates)
+}
+
+// CurrentLiveCapitalsGameWithScore fetches score/now and returns the Capitals game when it is LIVE or CRIT,
+// with current home/away scores for the status line (e.g. "WSH (2) @ MTL (6)").
+func (c *Client) CurrentLiveCapitalsGameWithScore(ctx context.Context) (*CurrentCapitalsGame, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ScoreNowURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "OvechBot/1.0")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("score/now api status %d", resp.StatusCode)
+	}
+	var payload struct {
+		Games []struct {
+			GameState string `json:"gameState"`
+			AwayTeam  struct {
+				Abbrev string `json:"abbrev"`
+				Score  int    `json:"score"`
+			} `json:"awayTeam"`
+			HomeTeam struct {
+				Abbrev string `json:"abbrev"`
+				Score  int    `json:"score"`
+			} `json:"homeTeam"`
+		} `json:"games"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	for _, g := range payload.Games {
+		if !LiveGameStates[g.GameState] {
+			continue
+		}
+		if g.HomeTeam.Abbrev == CapitalsAbbrev || g.AwayTeam.Abbrev == CapitalsAbbrev {
+			return &CurrentCapitalsGame{
+				HomeAbbrev: g.HomeTeam.Abbrev,
+				AwayAbbrev: g.AwayTeam.Abbrev,
+				HomeScore:  g.HomeTeam.Score,
+				AwayScore:  g.AwayTeam.Score,
+			}, nil
+		}
+	}
+	return nil, nil
 }
 
 // NextCapitalsGame holds the next (or current) Capitals game from the season schedule.

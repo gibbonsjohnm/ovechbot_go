@@ -2,12 +2,10 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
-	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -31,10 +29,6 @@ func main() {
 	nhlClient := nhl.NewClient()
 	producer := stream.NewProducer(rdb)
 
-	// seenGoals: keys "gameID:goalsToDate" for Ovechkin goals we already emitted (real-time path)
-	var seenMu sync.Mutex
-	seenGoals := make(map[string]struct{})
-	lastLiveGameID := 0
 	// career total we use for announcements: add 1 for each goal we detect; sync from API when not in a live game
 	lastKnownCareerTotal := 0
 
@@ -66,13 +60,6 @@ func main() {
 			}
 
 			if caps == nil {
-				// No Capitals game in score window; clear seen set and sync career total from API
-				seenMu.Lock()
-				if lastLiveGameID != 0 {
-					lastLiveGameID = 0
-					seenGoals = make(map[string]struct{})
-				}
-				seenMu.Unlock()
 				if apiGoals, err := nhlClient.CareerGoals(ctx); err == nil && apiGoals > lastKnownCareerTotal {
 					lastKnownCareerTotal = apiGoals
 				}
@@ -80,19 +67,18 @@ func main() {
 			}
 
 			if nhl.LiveGameStates[caps.GameState] {
-				lastLiveGameID = caps.GameID
 				for _, g := range caps.Goals {
 					if g.PlayerID != nhl.OvechkinPlayerID {
 						continue
 					}
-					key := fmt.Sprintf("%d:%d", caps.GameID, g.GoalsToDate)
-					seenMu.Lock()
-					if _, ok := seenGoals[key]; ok {
-						seenMu.Unlock()
+					alreadySeen, err := producer.MarkGoalSeen(ctx, caps.GameID, g.GoalsToDate)
+					if err != nil {
+						slog.Warn("mark goal seen failed", "error", err, "game_id", caps.GameID, "goals_to_date", g.GoalsToDate)
 						continue
 					}
-					seenGoals[key] = struct{}{}
-					seenMu.Unlock()
+					if alreadySeen {
+						continue
+					}
 
 					// Add this goal to career total for the announcement (don't rely on API which may lag)
 					lastKnownCareerTotal++
@@ -103,10 +89,21 @@ func main() {
 						evt.Opponent = info.Opponent
 						evt.OpponentName = info.OpponentName
 					}
-					// Use play-by-play for the goalie actually in net for this goal (not boxscore starter)
-					if name := nhlClient.GoalieForGoal(ctx, caps.GameID, nhl.OvechkinPlayerID, g.GoalsToDate); name != "" {
-						evt.GoalieName = name
+					// Use play-by-play for the goalie actually in net for this goal (not boxscore starter).
+					// If play-by-play doesn't have the goal yet (API lag), retry once after a short delay
+					// so we don't fall back to boxscore and show the wrong goalie after a mid-game change.
+					goalieName := nhlClient.GoalieForGoal(ctx, caps.GameID, nhl.OvechkinPlayerID, g.GoalsToDate)
+					if goalieName == "" {
+						select {
+						case <-ctx.Done():
+						case <-time.After(8 * time.Second):
+							goalieName = nhlClient.GoalieForGoal(ctx, caps.GameID, nhl.OvechkinPlayerID, g.GoalsToDate)
+						}
+					}
+					if goalieName != "" {
+						evt.GoalieName = goalieName
 					} else if info != nil {
+						// Fallback only if play-by-play never had this goal (e.g. API issue)
 						evt.GoalieName = info.GoalieName
 					}
 					id, err := producer.EmitGoalEvent(ctx, evt)
@@ -117,13 +114,6 @@ func main() {
 					slog.Info("goal event emitted (live)", "stream_id", id, "goals", careerGoals, "game_id", caps.GameID, "goals_to_date", g.GoalsToDate)
 				}
 			} else {
-				// Game no longer live; clear seen set and sync career total from API for next game
-				seenMu.Lock()
-				if lastLiveGameID != 0 && lastLiveGameID == caps.GameID {
-					lastLiveGameID = 0
-					seenGoals = make(map[string]struct{})
-				}
-				seenMu.Unlock()
 				if apiGoals, err := nhlClient.CareerGoals(ctx); err == nil && apiGoals > lastKnownCareerTotal {
 					lastKnownCareerTotal = apiGoals
 				}

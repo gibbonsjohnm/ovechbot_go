@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -12,6 +13,9 @@ import (
 const (
 	// StreamKey is the Redis stream key for Ovechkin goal events.
 	StreamKey = "ovechkin:goals"
+	// SeenGoalsKeyPrefix is the Redis SET key prefix for goals already emitted per game: "ovechkin:seen_goals:{gameID}".
+	SeenGoalsKeyPrefix = "ovechkin:seen_goals:"
+	seenGoalsTTL      = 7 * 24 * time.Hour
 )
 
 // GoalEvent is the payload emitted when the goal count increases.
@@ -53,4 +57,24 @@ func (p *Producer) EmitGoalEvent(ctx context.Context, e GoalEvent) (string, erro
 		return "", fmt.Errorf("xadd: %w", err)
 	}
 	return id, nil
+}
+
+// MarkGoalSeen records that we have emitted an event for this goal (gameID + goalsToDate).
+// It returns true if the goal was already seen (duplicate), false if this is the first time (should emit).
+// Uses a Redis SET per game with TTL so restarts and multiple ingestors share state.
+func (p *Producer) MarkGoalSeen(ctx context.Context, gameID, goalsToDate int) (alreadySeen bool, err error) {
+	key := SeenGoalsKeyPrefix + strconv.Itoa(gameID)
+	member := strconv.Itoa(goalsToDate)
+	added, err := p.client.SAdd(ctx, key, member).Result()
+	if err != nil {
+		return false, fmt.Errorf("sadd seen goal: %w", err)
+	}
+	if added == 0 {
+		return true, nil
+	}
+	if err := p.client.Expire(ctx, key, seenGoalsTTL).Err(); err != nil {
+		// Non-fatal: key will persist; we still marked the goal
+		return false, nil
+	}
+	return false, nil
 }

@@ -209,6 +209,43 @@ func TestCurrentLiveCapitalsGame_PreGameReturnsNil(t *testing.T) {
 	}
 }
 
+func TestCurrentLiveCapitalsGameWithScore_Found(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "score") {
+			t.Logf("unexpected path: %s", r.URL.Path)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"games":[{"gameState":"LIVE","awayTeam":{"abbrev":"WSH","score":2},"homeTeam":{"abbrev":"MTL","score":6}}]}`))
+	}))
+	defer server.Close()
+
+	client := &Client{
+		httpClient: &http.Client{
+			Transport: &roundTripperFunc{fn: func(req *http.Request) (*http.Response, error) {
+				req.URL.Host = server.Listener.Addr().String()
+				req.URL.Scheme = "http"
+				return http.DefaultTransport.RoundTrip(req)
+			}},
+		},
+	}
+	ctx := context.Background()
+	game, err := client.CurrentLiveCapitalsGameWithScore(ctx)
+	if err != nil {
+		t.Fatalf("CurrentLiveCapitalsGameWithScore: %v", err)
+	}
+	if game == nil {
+		t.Fatal("expected game")
+	}
+	if game.AwayAbbrev != "WSH" || game.HomeAbbrev != "MTL" {
+		t.Errorf("abbrevs = %s @ %s; want WSH @ MTL", game.AwayAbbrev, game.HomeAbbrev)
+	}
+	if game.AwayScore != 2 || game.HomeScore != 6 {
+		t.Errorf("scores = %d-%d; want 2-6", game.AwayScore, game.HomeScore)
+	}
+}
+
 func TestLastGoalGame_FromLanding(t *testing.T) {
 	landingCalled := false
 	boxscoreCalled := false

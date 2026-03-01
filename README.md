@@ -71,7 +71,7 @@ To post goal announcements to a Discord server and enable slash commands, set th
 
 **Possible future commands:** `/gap` (goals behind Gretzky’s 894), `/milestone` (next round number and how many away), `/last5` (goals in each of last 5 games from landing API).
 
-The bot’s status shows **Watching HOME vs AWAY** (e.g. `Watching WSH vs PHI`) when a live Capitals game is on (polled from NHL schedule); otherwise **Nothing :(**.
+The bot’s status shows **Watching AWAY @ HOME** with the current score when a live Capitals game is on (e.g. `Watching WSH (2) @ MTL (6)`), from the NHL score/now API; otherwise **Nothing :(**.
 
 Goal announcements are **rich embeds**: 🚨 GOAL! 🚨 title, Ovechkin image thumbnail, and career goal count.
 
