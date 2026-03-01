@@ -14,6 +14,7 @@ const (
 	CapitalsAbbrev   = "WSH"
 	LandingURLFmt    = "https://api-web.nhle.com/v1/player/%d/landing"
 	BoxscoreURLFmt   = "https://api-web.nhle.com/v1/gamecenter/%d/boxscore"
+	PlayByPlayURLFmt = "https://api-web.nhle.com/v1/gamecenter/%d/play-by-play"
 	ScoreNowURL      = "https://api-web.nhle.com/v1/score/now"
 )
 
@@ -333,4 +334,72 @@ func (c *Client) GoalGameInfo(ctx context.Context, gameID int) (*LastGoalGameInf
 		OpponentName: oppName,
 		GoalieName:   goalieName,
 	}, nil
+}
+
+// GoalieForGoal fetches play-by-play for the game and returns the display name of the goalie
+// who was in net for the specific goal (scoringPlayerID + goalsToDate). Uses "goalieInNetId"
+// from the goal event so we get the actual goalie on the ice, not the boxscore starter.
+// Returns empty string if not found or on error.
+func (c *Client) GoalieForGoal(ctx context.Context, gameID, scoringPlayerID, goalsToDate int) string {
+	url := fmt.Sprintf(PlayByPlayURLFmt, gameID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "OvechBot/1.0")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	var pbp struct {
+		Plays []struct {
+			TypeCode int `json:"typeCode"`
+			Details  *struct {
+				ScoringPlayerID    int `json:"scoringPlayerId"`
+				ScoringPlayerTotal int `json:"scoringPlayerTotal"`
+				GoalieInNetID      int `json:"goalieInNetId"`
+			} `json:"details"`
+		} `json:"plays"`
+		RosterSpots []struct {
+			PlayerID     int    `json:"playerId"`
+			PositionCode string `json:"positionCode"`
+			FirstName    struct { Default string `json:"default"` } `json:"firstName"`
+			LastName     struct { Default string `json:"default"` } `json:"lastName"`
+		} `json:"rosterSpots"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&pbp); err != nil {
+		return ""
+	}
+	var goalieInNetID int
+	for _, play := range pbp.Plays {
+		if play.TypeCode != 505 {
+			continue
+		}
+		if play.Details == nil {
+			continue
+		}
+		if play.Details.ScoringPlayerID == scoringPlayerID && play.Details.ScoringPlayerTotal == goalsToDate {
+			goalieInNetID = play.Details.GoalieInNetID
+			break
+		}
+	}
+	if goalieInNetID == 0 {
+		return ""
+	}
+	for _, r := range pbp.RosterSpots {
+		if r.PlayerID != goalieInNetID {
+			continue
+		}
+		first := r.FirstName.Default
+		if len(first) > 0 {
+			first = first[:1] + "."
+		}
+		return first + " " + r.LastName.Default
+	}
+	return ""
 }
