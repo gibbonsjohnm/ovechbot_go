@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -18,7 +20,7 @@ func main() {
 	slog.SetDefault(logger)
 
 	redisAddr := getEnv("REDIS_ADDR", "redis:6379")
-	pollInterval := getDurationEnv("POLL_INTERVAL", 60*time.Second)
+	pollInterval := getDurationEnv("POLL_INTERVAL", 20*time.Second)
 
 	rdb := redis.NewClient(&redis.Options{Addr: redisAddr})
 	defer rdb.Close()
@@ -29,11 +31,14 @@ func main() {
 	nhlClient := nhl.NewClient()
 	producer := stream.NewProducer(rdb)
 
-	var lastGoals int
+	// seenGoals: keys "gameID:goalsToDate" for Ovechkin goals we already emitted (real-time path)
+	var seenMu sync.Mutex
+	seenGoals := make(map[string]struct{})
+	lastLiveGameID := 0
+
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
-	// Initial poll to set baseline
 	if err := pingRedis(ctx, rdb); err != nil {
 		slog.Error("redis ping failed", "error", err)
 		os.Exit(1)
@@ -43,8 +48,7 @@ func main() {
 		slog.Error("initial nhl fetch failed", "error", err)
 		os.Exit(1)
 	}
-	lastGoals = goals
-	slog.Info("ingestor started", "stream", stream.StreamKey, "current_goals", goals)
+	slog.Info("ingestor started", "stream", stream.StreamKey, "current_goals", goals, "poll_interval", pollInterval)
 
 	for {
 		select {
@@ -52,25 +56,65 @@ func main() {
 			slog.Info("shutting down ingestor", "reason", ctx.Err())
 			return
 		case <-ticker.C:
-			goals, err := nhlClient.CareerGoals(ctx)
+			caps, err := nhlClient.CapsGameFromScoreNow(ctx)
 			if err != nil {
-				slog.Warn("nhl fetch failed", "error", err)
+				slog.Warn("score/now fetch failed", "error", err)
 				continue
 			}
-			if goals > lastGoals {
-				evt := stream.GoalEvent{PlayerID: nhl.OvechkinPlayerID, Goals: goals}
-				if info, err := nhlClient.LastGoalGameInfo(ctx); err == nil && info != nil {
-					evt.Opponent = info.Opponent
-					evt.OpponentName = info.OpponentName
-					evt.GoalieName = info.GoalieName
+
+			if caps == nil {
+				// No Capitals game in score window; clear seen set when we leave a live game
+				seenMu.Lock()
+				if lastLiveGameID != 0 {
+					lastLiveGameID = 0
+					seenGoals = make(map[string]struct{})
 				}
-				id, err := producer.EmitGoalEvent(ctx, evt)
-				if err != nil {
-					slog.Error("emit goal event failed", "error", err, "goals", goals)
-					continue
+				seenMu.Unlock()
+				continue
+			}
+
+			if nhl.LiveGameStates[caps.GameState] {
+				lastLiveGameID = caps.GameID
+				for _, g := range caps.Goals {
+					if g.PlayerID != nhl.OvechkinPlayerID {
+						continue
+					}
+					key := fmt.Sprintf("%d:%d", caps.GameID, g.GoalsToDate)
+					seenMu.Lock()
+					if _, ok := seenGoals[key]; ok {
+						seenMu.Unlock()
+						continue
+					}
+					seenGoals[key] = struct{}{}
+					seenMu.Unlock()
+
+					// New Ovechkin goal from live game; get career total and enrich
+					careerGoals, err := nhlClient.CareerGoals(ctx)
+					if err != nil {
+						slog.Warn("career goals fetch failed after live goal", "error", err)
+						careerGoals = 0
+					}
+					evt := stream.GoalEvent{PlayerID: nhl.OvechkinPlayerID, Goals: careerGoals}
+					if info, err := nhlClient.GoalGameInfo(ctx, caps.GameID); err == nil && info != nil {
+						evt.Opponent = info.Opponent
+						evt.OpponentName = info.OpponentName
+						evt.GoalieName = info.GoalieName
+					}
+					id, err := producer.EmitGoalEvent(ctx, evt)
+					if err != nil {
+						slog.Error("emit goal event failed", "error", err, "goals", careerGoals)
+						continue
+					}
+					slog.Info("goal event emitted (live)", "stream_id", id, "goals", careerGoals, "game_id", caps.GameID, "goals_to_date", g.GoalsToDate)
 				}
-				slog.Info("goal event emitted", "stream_id", id, "goals", goals, "previous", lastGoals)
-				lastGoals = goals
+			} else {
+				// Game no longer live; clear seen set for next game
+				seenMu.Lock()
+				if lastLiveGameID != 0 && lastLiveGameID == caps.GameID {
+					lastLiveGameID = 0
+					seenGoals = make(map[string]struct{})
+				}
+				seenMu.Unlock()
 			}
 		}
 	}

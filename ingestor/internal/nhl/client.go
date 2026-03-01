@@ -11,9 +11,14 @@ import (
 
 const (
 	OvechkinPlayerID = 8471214
+	CapitalsAbbrev   = "WSH"
 	LandingURLFmt    = "https://api-web.nhle.com/v1/player/%d/landing"
 	BoxscoreURLFmt   = "https://api-web.nhle.com/v1/gamecenter/%d/boxscore"
+	ScoreNowURL      = "https://api-web.nhle.com/v1/score/now"
 )
+
+// LiveGameStates are states where we watch for live goals (score/now updates in real time).
+var LiveGameStates = map[string]bool{"LIVE": true, "CRIT": true}
 
 // Client polls the NHL API for player stats.
 type Client struct {
@@ -164,6 +169,151 @@ func (c *Client) LastGoalGameInfo(ctx context.Context) (*LastGoalGameInfo, error
 			goalieName = box.PlayerByGameStats.HomeTeam.Goalies[0].Name.Default
 		}
 	} else {
+		oppName = box.AwayTeam.CommonName.Default
+		for _, g := range box.PlayerByGameStats.AwayTeam.Goalies {
+			if g.Starter {
+				goalieName = g.Name.Default
+				break
+			}
+		}
+		if goalieName == "" && len(box.PlayerByGameStats.AwayTeam.Goalies) > 0 {
+			goalieName = box.PlayerByGameStats.AwayTeam.Goalies[0].Name.Default
+		}
+	}
+	if oppName == "" {
+		oppName = oppAbbrev
+	}
+	return &LastGoalGameInfo{
+		Opponent:     oppAbbrev,
+		OpponentName: oppName,
+		GoalieName:   goalieName,
+	}, nil
+}
+
+// GameGoal is a single goal from the score/now API (subset of fields).
+type GameGoal struct {
+	PlayerID    int `json:"playerId"`
+	GoalsToDate int `json:"goalsToDate"`
+}
+
+// CapsGame is the Washington Capitals game from score/now, when WSH is home or away.
+type CapsGame struct {
+	GameID     int        `json:"id"`
+	GameState  string     `json:"gameState"`
+	Goals      []GameGoal `json:"goals"`
+	HomeAbbrev string     `json:"-"`
+	AwayAbbrev string     `json:"-"`
+}
+
+// CapsGameFromScoreNow fetches score/now and returns the Capitals game if any (WSH home or away).
+// Returns nil when there is no WSH game in the current score window.
+func (c *Client) CapsGameFromScoreNow(ctx context.Context) (*CapsGame, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ScoreNowURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("new request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "OvechBot/1.0")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("score/now api status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var payload struct {
+		Games []struct {
+			ID         int    `json:"id"`
+			GameState  string `json:"gameState"`
+			AwayTeam   struct{ Abbrev string `json:"abbrev"` } `json:"awayTeam"`
+			HomeTeam   struct{ Abbrev string `json:"abbrev"` } `json:"homeTeam"`
+			Goals      []GameGoal `json:"goals"`
+		} `json:"games"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decode score/now: %w", err)
+	}
+
+	for _, g := range payload.Games {
+		if g.AwayTeam.Abbrev != CapitalsAbbrev && g.HomeTeam.Abbrev != CapitalsAbbrev {
+			continue
+		}
+		return &CapsGame{
+			GameID:     g.ID,
+			GameState:  g.GameState,
+			Goals:      g.Goals,
+			HomeAbbrev: g.HomeTeam.Abbrev,
+			AwayAbbrev: g.AwayTeam.Abbrev,
+		}, nil
+	}
+	return nil, nil
+}
+
+// GoalGameInfo fetches opponent and goalie for a specific game from its boxscore.
+// Used to enrich real-time goal events when we already know the game ID.
+func (c *Client) GoalGameInfo(ctx context.Context, gameID int) (*LastGoalGameInfo, error) {
+	boxURL := fmt.Sprintf(BoxscoreURLFmt, gameID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, boxURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "OvechBot/1.0")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("boxscore status %d", resp.StatusCode)
+	}
+	var box struct {
+		AwayTeam struct {
+			Abbrev     string `json:"abbrev"`
+			CommonName struct { Default string `json:"default"` } `json:"commonName"`
+		} `json:"awayTeam"`
+		HomeTeam struct {
+			Abbrev     string `json:"abbrev"`
+			CommonName struct { Default string `json:"default"` } `json:"commonName"`
+		} `json:"homeTeam"`
+		PlayerByGameStats struct {
+			AwayTeam struct {
+				Goalies []struct {
+					Name    struct { Default string `json:"default"` } `json:"name"`
+					Starter bool   `json:"starter"`
+				} `json:"goalies"`
+			} `json:"awayTeam"`
+			HomeTeam struct {
+				Goalies []struct {
+					Name    struct { Default string `json:"default"` } `json:"name"`
+					Starter bool   `json:"starter"`
+				} `json:"goalies"`
+			} `json:"homeTeam"`
+		} `json:"playerByGameStats"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&box); err != nil {
+		return nil, err
+	}
+	var oppAbbrev, oppName, goalieName string
+	if box.AwayTeam.Abbrev == CapitalsAbbrev {
+		oppAbbrev = box.HomeTeam.Abbrev
+		oppName = box.HomeTeam.CommonName.Default
+		for _, g := range box.PlayerByGameStats.HomeTeam.Goalies {
+			if g.Starter {
+				goalieName = g.Name.Default
+				break
+			}
+		}
+		if goalieName == "" && len(box.PlayerByGameStats.HomeTeam.Goalies) > 0 {
+			goalieName = box.PlayerByGameStats.HomeTeam.Goalies[0].Name.Default
+		}
+	} else {
+		oppAbbrev = box.AwayTeam.Abbrev
 		oppName = box.AwayTeam.CommonName.Default
 		for _, g := range box.PlayerByGameStats.AwayTeam.Goalies {
 			if g.Starter {
