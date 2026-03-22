@@ -56,7 +56,9 @@ func (p *Producer) AlreadySent(ctx context.Context, gameID int64) (bool, error) 
 	return err == nil, err
 }
 
-// Publish writes a reminder to the stream and marks the game as sent.
+// Publish writes a reminder to the stream, marks the game as sent, and locks
+// in the prediction snapshot so the evaluator sees the same numbers as the
+// pre-game message.
 func (p *Producer) Publish(ctx context.Context, g *schedule.Game, probabilityPct int, oddsAmerican, goalieName string) error {
 	homeAway := "AWAY"
 	if g.IsHome() {
@@ -83,10 +85,19 @@ func (p *Producer) Publish(ctx context.Context, g *schedule.Game, probabilityPct
 	if err != nil {
 		return err
 	}
-	return p.client.Set(ctx, SentKeyPrefix+strconv.FormatInt(g.GameID, 10), "1", SentKeyTTL).Err()
+	if err := p.client.Set(ctx, SentKeyPrefix+strconv.FormatInt(g.GameID, 10), "1", SentKeyTTL).Err(); err != nil {
+		return err
+	}
+	// Lock the prediction snapshot at reminder-send time so the evaluator's
+	// post-game report reflects the exact prediction and odds shown pre-game.
+	// NX ensures we never overwrite once set.
+	snapshotKey := PredictionSnapshotKeyPrefix + strconv.FormatInt(g.GameID, 10)
+	return p.client.SetNX(ctx, snapshotKey, string(body), PredictionSnapshotTTL).Err()
 }
 
 // WriteNextPrediction stores the current next-game prediction so /nextgame can display it.
+// The evaluator snapshot is written (and frozen) separately in Publish, so this only
+// updates the /nextgame display key.
 func (p *Producer) WriteNextPrediction(ctx context.Context, g *schedule.Game, probabilityPct int, oddsAmerican, goalieName string) error {
 	payload := Payload{
 		GameID:         g.GameID,
@@ -105,10 +116,5 @@ func (p *Producer) WriteNextPrediction(ctx context.Context, g *schedule.Game, pr
 	if err != nil {
 		return err
 	}
-	if err := p.client.Set(ctx, NextPredictionKey, string(body), NextPredictionTTL).Err(); err != nil {
-		return err
-	}
-	// Snapshot for evaluator backtesting (same payload, longer TTL).
-	snapshotKey := PredictionSnapshotKeyPrefix + strconv.FormatInt(g.GameID, 10)
-	return p.client.Set(ctx, snapshotKey, string(body), PredictionSnapshotTTL).Err()
+	return p.client.Set(ctx, NextPredictionKey, string(body), NextPredictionTTL).Err()
 }
