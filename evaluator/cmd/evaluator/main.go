@@ -164,7 +164,9 @@ func run(rdb *redis.Client) {
 		return
 	}
 	// Only mark as reported after a successful publish so we send exactly once per game.
-	if err := rdb.Set(ctx, lastReportedKey, game.GameID, 30*24*time.Hour).Err(); err != nil {
+	// No TTL: this guard must be durable. A TTL would expire during the offseason (when no
+	// new game advances it), causing the stale last game to be re-published on the next run.
+	if err := rdb.Set(ctx, lastReportedKey, game.GameID, 0).Err(); err != nil {
 		slog.Warn("evaluator: set last reported failed", "error", err)
 	}
 }

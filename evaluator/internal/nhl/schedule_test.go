@@ -2,9 +2,11 @@ package nhl
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // testRoundTripper redirects all HTTP calls to a local test server.
@@ -33,17 +35,18 @@ func replaceHTTPClient(t *testing.T, server *httptest.Server) {
 // ---- LastCompletedGame tests ----
 
 func TestLastCompletedGame_FINAL(t *testing.T) {
-	// One FINAL game — should be returned.
-	schedJSON := `{"games": [
+	// One recent FINAL game — should be returned.
+	recentStart := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
+	schedJSON := fmt.Sprintf(`{"games": [
 		{
 			"id": 2025020042,
 			"gameDate": "2026-02-01",
-			"startTimeUTC": "2026-02-01T23:00:00Z",
+			"startTimeUTC": %q,
 			"gameState": "FINAL",
 			"homeTeam": {"abbrev": "WSH"},
 			"awayTeam": {"abbrev": "PHI"}
 		}
-	]}`
+	]}`, recentStart)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(schedJSON))
 	}))
@@ -67,16 +70,17 @@ func TestLastCompletedGame_FINAL(t *testing.T) {
 
 func TestLastCompletedGame_OFF(t *testing.T) {
 	// Accepts OFF state as completed.
-	schedJSON := `{"games": [
+	recentStart := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
+	schedJSON := fmt.Sprintf(`{"games": [
 		{
 			"id": 2025020099,
 			"gameDate": "2026-02-05",
-			"startTimeUTC": "2026-02-05T23:00:00Z",
+			"startTimeUTC": %q,
 			"gameState": "OFF",
 			"homeTeam": {"abbrev": "NYR"},
 			"awayTeam": {"abbrev": "WSH"}
 		}
-	]}`
+	]}`, recentStart)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(schedJSON))
 	}))
@@ -97,12 +101,15 @@ func TestLastCompletedGame_OFF(t *testing.T) {
 }
 
 func TestLastCompletedGame_PicksMostRecent(t *testing.T) {
-	// Two FINAL games — should return the one with the later start time.
-	schedJSON := `{"games": [
+	// Two recent FINAL games — should return the one with the later start time.
+	now := time.Now().UTC()
+	olderStart := now.Add(-72 * time.Hour).Format(time.RFC3339)
+	newerStart := now.Add(-24 * time.Hour).Format(time.RFC3339)
+	schedJSON := fmt.Sprintf(`{"games": [
 		{
 			"id": 111,
 			"gameDate": "2026-01-10",
-			"startTimeUTC": "2026-01-10T23:00:00Z",
+			"startTimeUTC": %q,
 			"gameState": "FINAL",
 			"homeTeam": {"abbrev": "WSH"},
 			"awayTeam": {"abbrev": "BOS"}
@@ -110,12 +117,12 @@ func TestLastCompletedGame_PicksMostRecent(t *testing.T) {
 		{
 			"id": 222,
 			"gameDate": "2026-02-15",
-			"startTimeUTC": "2026-02-15T23:00:00Z",
+			"startTimeUTC": %q,
 			"gameState": "FINAL",
 			"homeTeam": {"abbrev": "WSH"},
 			"awayTeam": {"abbrev": "PHI"}
 		}
-	]}`
+	]}`, olderStart, newerStart)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(schedJSON))
 	}))
@@ -161,6 +168,36 @@ func TestLastCompletedGame_NoCompletedGames(t *testing.T) {
 	}
 	if g != nil {
 		t.Errorf("expected nil for no completed games, got: %+v", g)
+	}
+}
+
+func TestLastCompletedGame_IgnoresStaleGame(t *testing.T) {
+	// A FINAL game that finished long ago (e.g. last season, during the offseason)
+	// must NOT be returned. Otherwise, if the evaluator's dedup key is ever lost
+	// (TTL expiry or a Redis restart), it would re-publish a months-old post-game.
+	staleStart := time.Now().UTC().Add(-200 * 24 * time.Hour).Format(time.RFC3339)
+	schedJSON := fmt.Sprintf(`{"games": [
+		{
+			"id": 2024020042,
+			"gameDate": "2025-04-01",
+			"startTimeUTC": %q,
+			"gameState": "FINAL",
+			"homeTeam": {"abbrev": "WSH"},
+			"awayTeam": {"abbrev": "PHI"}
+		}
+	]}`, staleStart)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(schedJSON))
+	}))
+	defer server.Close()
+	replaceHTTPClient(t, server)
+
+	g, err := LastCompletedGame(context.Background())
+	if err != nil {
+		t.Fatalf("LastCompletedGame: %v", err)
+	}
+	if g != nil {
+		t.Errorf("expected nil for a stale (long-finished) game, got: %+v", g)
 	}
 }
 

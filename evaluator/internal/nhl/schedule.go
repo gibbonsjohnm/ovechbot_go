@@ -24,6 +24,12 @@ type CompletedGame struct {
 // CompletedGameStates are schedule gameState values for finished games (NHL API uses FINAL; OFF also accepted).
 var CompletedGameStates = map[string]bool{"FINAL": true, "OFF": true}
 
+// ReportableWindow bounds how recently a game must have started to still be
+// considered reportable. This prevents the evaluator from re-publishing a
+// months-old game (e.g. last season's final during the offseason) if its
+// dedup guard is ever lost to a TTL expiry or a Redis restart.
+const ReportableWindow = 7 * 24 * time.Hour
+
 // LastCompletedGame returns the most recent Capitals game with state FINAL or OFF (finished). Nil if none.
 func LastCompletedGame(ctx context.Context) (*CompletedGame, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scheduleURL, nil)
@@ -62,6 +68,11 @@ func LastCompletedGame(ctx context.Context) (*CompletedGame, error) {
 		}
 		start, err := time.Parse(time.RFC3339, g.StartTimeUTC)
 		if err != nil || start.After(now) {
+			continue
+		}
+		// Ignore games that finished long ago so a lost dedup guard can never
+		// resurrect a stale (e.g. offseason) post-game report.
+		if start.Before(now.Add(-ReportableWindow)) {
 			continue
 		}
 		// Pick the completed game with the latest start time (most recently finished).

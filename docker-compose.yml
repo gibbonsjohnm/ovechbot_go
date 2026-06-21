@@ -1,6 +1,13 @@
 services:
   redis:
     image: redis/redis-stack:7.2.0-v10
+    # Enable AOF persistence so dedup guards (e.g. evaluator_last_reported_game) and
+    # streams survive a restart. Without this, a Redis restart wipes the guard and the
+    # evaluator re-publishes the stale last completed game (an old post-game analysis).
+    environment:
+      REDIS_ARGS: "--appendonly yes"
+    volumes:
+      - redis-data:/data
     ports:
       - "6380:6379"   # host 6380 to avoid conflict with existing Redis on 6379
       - "8002:8001"   # Redis Insight UI
@@ -57,7 +64,7 @@ services:
       redis:
         condition: service_healthy
 
-  # Runs every 30m; after each completed Caps game publishes post-game summary to ovechkin:post_game; announcer posts to Discord.
+  # Runs every 15m; after each completed Caps game publishes post-game summary to ovechkin:post_game; announcer posts to Discord.
   evaluator:
     build:
       context: ./evaluator
@@ -67,3 +74,6 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+
+volumes:
+  redis-data:
