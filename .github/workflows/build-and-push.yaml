@@ -25,6 +25,8 @@ jobs:
           tags: |
             type=sha
             type=raw,value=latest
+            # Sortable UTC build tag consumed by Flux image automation (numerical ImagePolicy).
+            type=raw,value=main-{{date 'YYYYMMDDHHmmss'}}
 
       - uses: docker/build-push-action@v6
         with:
