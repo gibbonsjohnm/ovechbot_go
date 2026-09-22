@@ -24,6 +24,10 @@ type CompletedGame struct {
 // CompletedGameStates are schedule gameState values for finished games (NHL API uses FINAL; OFF also accepted).
 var CompletedGameStates = map[string]bool{"FINAL": true, "OFF": true}
 
+// GameTypeRegularSeason is the NHL API gameType for regular-season games (1 = preseason, 3 = playoffs).
+// Only regular-season games count toward the goal record, so every other type is ignored.
+const GameTypeRegularSeason = 2
+
 // ReportableWindow bounds how recently a game must have started to still be
 // considered reportable. This prevents the evaluator from re-publishing a
 // months-old game (e.g. last season's final during the offseason) if its
@@ -49,6 +53,7 @@ func LastCompletedGame(ctx context.Context) (*CompletedGame, error) {
 	var sched struct {
 		Games []struct {
 			ID           int64  `json:"id"`
+			GameType     int    `json:"gameType"`
 			GameDate     string `json:"gameDate"`
 			StartTimeUTC string `json:"startTimeUTC"`
 			GameState    string `json:"gameState"`
@@ -63,6 +68,9 @@ func LastCompletedGame(ctx context.Context) (*CompletedGame, error) {
 	var last *CompletedGame
 	var lastStart time.Time
 	for _, g := range sched.Games {
+		if g.GameType != GameTypeRegularSeason {
+			continue
+		}
 		if !CompletedGameStates[g.GameState] {
 			continue
 		}

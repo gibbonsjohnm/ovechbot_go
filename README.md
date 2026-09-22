@@ -48,6 +48,7 @@ This builds and runs `ingestor`, `collector`, `predictor`, `announcer`, and `eva
 - **Ingestor**: polls every 60s; `POLL_INTERVAL` to change.
 - **Collector**: refreshes game log and standings every 6h; `COLLECTOR_INTERVAL` to change.
 - **Predictor**: every 10 min, computes Ovi scoring % for the next game and writes to `ovechkin:next_prediction` (for `/nextgame`); when that game is in 55–65 min, also publishes to `ovechkin:reminders`.
+- **Regular season only**: every service filters NHL schedule/score data to `gameType == 2`. Preseason (`1`) and playoff (`3`) games never trigger reminders, post-game reports, live goal events, or the "Watching" status.
 - **Announcer**: consumes `ovechkin:goals` and `ovechkin:reminders`; posts goal announcements and pre-game reminders to Discord and runs slash commands.
 - **Evaluator**: every 30 min, checks for the latest completed Caps game. If not yet reported, fetches boxscore (Ovi’s stats) and our prediction snapshot, then publishes one post-game summary to the Redis stream `ovechkin:post_game`. The **announcer** consumes that stream and posts the summary to Discord (same channel as goals/reminders), so no separate Discord config is needed for the evaluator.
 

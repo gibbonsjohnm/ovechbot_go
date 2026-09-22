@@ -37,7 +37,12 @@ func (g *Game) IsHome() bool {
 
 var inProgressStates = map[string]bool{"LIVE": true, "PRE": true, "CRIT": true}
 
-// NextGame fetches the Capitals schedule and returns the next game (or in-progress).
+// GameTypeRegularSeason is the NHL API gameType for regular-season games (1 = preseason, 3 = playoffs).
+// Only regular-season games count toward the goal record, so every other type is ignored.
+const GameTypeRegularSeason = 2
+
+// NextGame fetches the Capitals schedule and returns the next regular-season game (or in-progress).
+// Preseason and playoff games are skipped.
 func NextGame(ctx context.Context) (*Game, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clubScheduleURL, nil)
 	if err != nil {
@@ -56,6 +61,7 @@ func NextGame(ctx context.Context) (*Game, error) {
 	var sched struct {
 		Games []struct {
 			ID           int64  `json:"id"`
+			GameType     int    `json:"gameType"`
 			GameDate     string `json:"gameDate"`
 			StartTimeUTC string `json:"startTimeUTC"`
 			GameState    string `json:"gameState"`
@@ -69,6 +75,9 @@ func NextGame(ctx context.Context) (*Game, error) {
 	now := time.Now().UTC()
 	var inProgress, firstFuture *Game
 	for _, g := range sched.Games {
+		if g.GameType != GameTypeRegularSeason {
+			continue
+		}
 		start, _ := time.Parse(time.RFC3339, g.StartTimeUTC)
 		n := &Game{
 			GameID:       g.ID,

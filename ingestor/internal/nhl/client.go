@@ -206,8 +206,12 @@ type CapsGame struct {
 	AwayAbbrev string     `json:"-"`
 }
 
-// CapsGameFromScoreNow fetches score/now and returns the Capitals game if any (WSH home or away).
-// Returns nil when there is no WSH game in the current score window.
+// GameTypeRegularSeason is the NHL API gameType for regular-season games (1 = preseason, 3 = playoffs).
+// Only regular-season goals count toward the career record, so every other type is ignored.
+const GameTypeRegularSeason = 2
+
+// CapsGameFromScoreNow fetches score/now and returns the Capitals regular-season game if any (WSH home or away).
+// Returns nil when there is no WSH regular-season game in the current score window; preseason and playoff games are skipped.
 func (c *Client) CapsGameFromScoreNow(ctx context.Context) (*CapsGame, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ScoreNowURL, nil)
 	if err != nil {
@@ -230,6 +234,7 @@ func (c *Client) CapsGameFromScoreNow(ctx context.Context) (*CapsGame, error) {
 	var payload struct {
 		Games []struct {
 			ID         int    `json:"id"`
+			GameType   int    `json:"gameType"`
 			GameState  string `json:"gameState"`
 			AwayTeam   struct{ Abbrev string `json:"abbrev"` } `json:"awayTeam"`
 			HomeTeam   struct{ Abbrev string `json:"abbrev"` } `json:"homeTeam"`
@@ -241,6 +246,9 @@ func (c *Client) CapsGameFromScoreNow(ctx context.Context) (*CapsGame, error) {
 	}
 
 	for _, g := range payload.Games {
+		if g.GameType != GameTypeRegularSeason {
+			continue
+		}
 		if g.AwayTeam.Abbrev != CapitalsAbbrev && g.HomeTeam.Abbrev != CapitalsAbbrev {
 			continue
 		}

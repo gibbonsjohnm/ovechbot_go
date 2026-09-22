@@ -96,6 +96,10 @@ type CurrentCapitalsGame struct {
 	AwayScore  int    // -1 when not available
 }
 
+// GameTypeRegularSeason is the NHL API gameType for regular-season games (1 = preseason, 3 = playoffs).
+// Only regular-season games count toward the goal record, so every other type is ignored.
+const GameTypeRegularSeason = 2
+
 // InProgressGameStates are schedule gameState values meaning the game is on now (or pre-game).
 var InProgressGameStates = map[string]bool{
 	"LIVE": true, "PRE": true, "CRIT": true,
@@ -125,6 +129,7 @@ func (c *Client) currentCapitalsGameFromSchedule(ctx context.Context, states map
 	var sched struct {
 		GameWeek []struct {
 			Games []struct {
+				GameType  int    `json:"gameType"`
 				GameState string `json:"gameState"`
 				HomeTeam  struct {
 					Abbrev string `json:"abbrev"`
@@ -140,7 +145,7 @@ func (c *Client) currentCapitalsGameFromSchedule(ctx context.Context, states map
 	}
 	for _, week := range sched.GameWeek {
 		for _, g := range week.Games {
-			if !states[g.GameState] {
+			if g.GameType != GameTypeRegularSeason || !states[g.GameState] {
 				continue
 			}
 			if g.HomeTeam.Abbrev == CapitalsAbbrev || g.AwayTeam.Abbrev == CapitalsAbbrev {
@@ -187,6 +192,7 @@ func (c *Client) CurrentLiveCapitalsGameWithScore(ctx context.Context) (*Current
 	}
 	var payload struct {
 		Games []struct {
+			GameType  int    `json:"gameType"`
 			GameState string `json:"gameState"`
 			AwayTeam  struct {
 				Abbrev string `json:"abbrev"`
@@ -202,7 +208,7 @@ func (c *Client) CurrentLiveCapitalsGameWithScore(ctx context.Context) (*Current
 		return nil, err
 	}
 	for _, g := range payload.Games {
-		if !LiveGameStates[g.GameState] {
+		if g.GameType != GameTypeRegularSeason || !LiveGameStates[g.GameState] {
 			continue
 		}
 		if g.HomeTeam.Abbrev == CapitalsAbbrev || g.AwayTeam.Abbrev == CapitalsAbbrev {
@@ -248,6 +254,7 @@ func (c *Client) NextCapitalsGame(ctx context.Context) (*NextCapitalsGame, error
 	var sched struct {
 		Games []struct {
 			ID           int64     `json:"id"`
+			GameType     int       `json:"gameType"`
 			GameDate     string    `json:"gameDate"`
 			StartTimeUTC string    `json:"startTimeUTC"`
 			GameState    string    `json:"gameState"`
@@ -262,6 +269,9 @@ func (c *Client) NextCapitalsGame(ctx context.Context) (*NextCapitalsGame, error
 	now := time.Now().UTC()
 	var inProgress, firstFuture *NextCapitalsGame
 	for _, g := range sched.Games {
+		if g.GameType != GameTypeRegularSeason {
+			continue
+		}
 		start, _ := time.Parse(time.RFC3339, g.StartTimeUTC)
 		n := &NextCapitalsGame{
 			GameID:       g.ID,
