@@ -100,7 +100,7 @@ func TestCurrentCapitalsGame_Found(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"gameWeek":[{"games":[{"gameState":"LIVE","homeTeam":{"abbrev":"WSH"},"awayTeam":{"abbrev":"PHI"}}]}]}`))
+		_, _ = w.Write([]byte(`{"gameWeek":[{"games":[{"gameType":2,"gameState":"LIVE","homeTeam":{"abbrev":"WSH"},"awayTeam":{"abbrev":"PHI"}}]}]}`))
 	}))
 	defer server.Close()
 
@@ -130,7 +130,7 @@ func TestCurrentCapitalsGame_NotFound(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"gameWeek":[{"games":[{"gameState":"LIVE","homeTeam":{"abbrev":"BOS"},"awayTeam":{"abbrev":"MTL"}}]}]}`))
+		_, _ = w.Write([]byte(`{"gameWeek":[{"games":[{"gameType":2,"gameState":"LIVE","homeTeam":{"abbrev":"BOS"},"awayTeam":{"abbrev":"MTL"}}]}]}`))
 	}))
 	defer server.Close()
 
@@ -158,7 +158,7 @@ func TestCurrentCapitalsGame_NotInProgress(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"gameWeek":[{"games":[{"gameState":"FUT","homeTeam":{"abbrev":"WSH"},"awayTeam":{"abbrev":"PHI"}}]}]}`))
+		_, _ = w.Write([]byte(`{"gameWeek":[{"games":[{"gameType":2,"gameState":"FUT","homeTeam":{"abbrev":"WSH"},"awayTeam":{"abbrev":"PHI"}}]}]}`))
 	}))
 	defer server.Close()
 
@@ -186,7 +186,7 @@ func TestCurrentLiveCapitalsGame_PreGameReturnsNil(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"gameWeek":[{"games":[{"gameState":"PRE","homeTeam":{"abbrev":"WSH"},"awayTeam":{"abbrev":"VGK"}}]}]}`))
+		_, _ = w.Write([]byte(`{"gameWeek":[{"games":[{"gameType":2,"gameState":"PRE","homeTeam":{"abbrev":"WSH"},"awayTeam":{"abbrev":"VGK"}}]}]}`))
 	}))
 	defer server.Close()
 
@@ -217,7 +217,7 @@ func TestCurrentLiveCapitalsGameWithScore_Found(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"games":[{"gameState":"LIVE","awayTeam":{"abbrev":"WSH","score":2},"homeTeam":{"abbrev":"MTL","score":6}}]}`))
+		_, _ = w.Write([]byte(`{"games":[{"gameType":2,"gameState":"LIVE","awayTeam":{"abbrev":"WSH","score":2},"homeTeam":{"abbrev":"MTL","score":6}}]}`))
 	}))
 	defer server.Close()
 
@@ -302,7 +302,7 @@ func TestNextCapitalsGame_Future(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"games":[{"gameDate":"2026-02-25","startTimeUTC":"2026-02-25T00:30:00Z","gameState":"FUT","venue":"Capital One Arena","homeTeam":{"abbrev":"WSH"},"awayTeam":{"abbrev":"PHI"}}]}`))
+		_, _ = w.Write([]byte(`{"games":[{"gameDate":"2026-02-25","startTimeUTC":"2099-02-25T00:30:00Z","gameType":2,"gameState":"FUT","venue":"Capital One Arena","homeTeam":{"abbrev":"WSH"},"awayTeam":{"abbrev":"PHI"}}]}`))
 	}))
 	defer server.Close()
 
@@ -339,7 +339,7 @@ func TestNextCapitalsGame_InProgressPreferred(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		// LIVE game first in list; FUT later. Should return LIVE.
-		_, _ = w.Write([]byte(`{"games":[{"gameDate":"2026-02-22","startTimeUTC":"2026-02-22T00:00:00Z","gameState":"LIVE","venue":"Wells Fargo Center","homeTeam":{"abbrev":"PHI"},"awayTeam":{"abbrev":"WSH"}},{"gameDate":"2026-02-25","startTimeUTC":"2026-02-25T00:30:00Z","gameState":"FUT","venue":"Capital One Arena","homeTeam":{"abbrev":"WSH"},"awayTeam":{"abbrev":"PHI"}}]}`))
+		_, _ = w.Write([]byte(`{"games":[{"gameDate":"2026-02-22","startTimeUTC":"2026-02-22T00:00:00Z","gameType":2,"gameState":"LIVE","venue":"Wells Fargo Center","homeTeam":{"abbrev":"PHI"},"awayTeam":{"abbrev":"WSH"}},{"gameDate":"2026-02-25","startTimeUTC":"2099-02-25T00:30:00Z","gameType":2,"gameState":"FUT","venue":"Capital One Arena","homeTeam":{"abbrev":"WSH"},"awayTeam":{"abbrev":"PHI"}}]}`))
 	}))
 	defer server.Close()
 
@@ -369,5 +369,75 @@ func TestNewClient(t *testing.T) {
 	c := NewClient()
 	if c == nil || c.httpClient == nil {
 		t.Error("NewClient failed")
+	}
+}
+
+// newRedirectedClient returns a Client whose requests all go to server.
+func newRedirectedClient(server *httptest.Server) *Client {
+	return &Client{
+		httpClient: &http.Client{
+			Transport: &roundTripperFunc{fn: func(req *http.Request) (*http.Response, error) {
+				req.URL.Host = server.Listener.Addr().String()
+				req.URL.Scheme = "http"
+				return http.DefaultTransport.RoundTrip(req)
+			}},
+		},
+	}
+}
+
+func TestCurrentCapitalsGame_IgnoresPreseason(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"gameWeek":[{"games":[{"id":2026010020,"gameType":1,"gameState":"LIVE","homeTeam":{"abbrev":"WSH"},"awayTeam":{"abbrev":"PHI"}}]}]}`))
+	}))
+	defer server.Close()
+
+	game, err := newRedirectedClient(server).CurrentCapitalsGame(context.Background())
+	if err != nil {
+		t.Fatalf("CurrentCapitalsGame: %v", err)
+	}
+	if game != nil {
+		t.Errorf("expected nil for a live preseason game, got %+v", game)
+	}
+}
+
+func TestCurrentLiveCapitalsGameWithScore_IgnoresPreseason(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"games":[{"id":2026010020,"gameType":1,"gameState":"LIVE","awayTeam":{"abbrev":"PHI","score":1},"homeTeam":{"abbrev":"WSH","score":2}}]}`))
+	}))
+	defer server.Close()
+
+	game, err := newRedirectedClient(server).CurrentLiveCapitalsGameWithScore(context.Background())
+	if err != nil {
+		t.Fatalf("CurrentLiveCapitalsGameWithScore: %v", err)
+	}
+	if game != nil {
+		t.Errorf("expected nil for a live preseason game, got %+v", game)
+	}
+}
+
+func TestNextCapitalsGame_SkipsPreseasonAndPlayoffs(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "club-schedule-season") {
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		// Preseason LIVE, preseason FUT, then the first regular-season game, then a playoff game.
+		_, _ = w.Write([]byte(`{"games":[
+			{"id":2026010020,"gameType":1,"gameDate":"2026-09-21","startTimeUTC":"2026-09-21T23:00:00Z","gameState":"LIVE","venue":"Capital One Arena","homeTeam":{"abbrev":"WSH"},"awayTeam":{"abbrev":"PHI"}},
+			{"id":2026010049,"gameType":1,"gameDate":"2026-09-25","startTimeUTC":"2099-09-25T23:00:00Z","gameState":"FUT","venue":"Capital One Arena","homeTeam":{"abbrev":"WSH"},"awayTeam":{"abbrev":"BOS"}},
+			{"id":2026020018,"gameType":2,"gameDate":"2026-10-02","startTimeUTC":"2099-10-02T23:00:00Z","gameState":"FUT","venue":"Lenovo Center","homeTeam":{"abbrev":"CAR"},"awayTeam":{"abbrev":"WSH"}},
+			{"id":2026030111,"gameType":3,"gameDate":"2027-04-20","startTimeUTC":"2099-04-20T23:00:00Z","gameState":"FUT","venue":"Capital One Arena","homeTeam":{"abbrev":"WSH"},"awayTeam":{"abbrev":"PIT"}}
+		]}`))
+	}))
+	defer server.Close()
+
+	game, err := newRedirectedClient(server).NextCapitalsGame(context.Background())
+	if err != nil {
+		t.Fatalf("NextCapitalsGame: %v", err)
+	}
+	if game == nil || game.GameID != 2026020018 {
+		t.Fatalf("got %+v; want regular-season game 2026020018", game)
 	}
 }

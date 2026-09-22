@@ -96,7 +96,7 @@ func TestCapsGameFromScoreNow_Found(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"games":[{"id":2025020940,"gameState":"LIVE","awayTeam":{"abbrev":"WSH"},"homeTeam":{"abbrev":"MTL"},"goals":[{"playerId":8471214,"goalsToDate":23}]}]}`))
+		_, _ = w.Write([]byte(`{"games":[{"id":2025020940,"gameType":2,"gameState":"LIVE","awayTeam":{"abbrev":"WSH"},"homeTeam":{"abbrev":"MTL"},"goals":[{"playerId":8471214,"goalsToDate":23}]}]}`))
 	}))
 	defer server.Close()
 
@@ -132,4 +132,22 @@ func (r *redirectHostRoundTripper) RoundTrip(req *http.Request) (*http.Response,
 	u.RawQuery = req.URL.RawQuery
 	req2.URL = u
 	return http.DefaultTransport.RoundTrip(req2)
+}
+
+func TestCapsGameFromScoreNow_IgnoresPreseason(t *testing.T) {
+	// Preseason goals do not count toward the career record and must not be announced.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"games":[{"id":2026010020,"gameType":1,"gameState":"LIVE","awayTeam":{"abbrev":"PHI"},"homeTeam":{"abbrev":"WSH"},"goals":[{"playerId":8471214,"goalsToDate":1}]}]}`))
+	}))
+	defer server.Close()
+
+	c := &Client{httpClient: &http.Client{Transport: &redirectHostRoundTripper{redirectBase: server.URL}}, baseURL: "https://api-web.nhle.com/v1/player/8471214/landing"}
+	caps, err := c.CapsGameFromScoreNow(context.Background())
+	if err != nil {
+		t.Fatalf("CapsGameFromScoreNow: %v", err)
+	}
+	if caps != nil {
+		t.Errorf("expected nil for a preseason game, got %+v", caps)
+	}
 }
