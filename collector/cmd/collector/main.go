@@ -40,7 +40,7 @@ func main() {
 	}
 
 	nhlClient := nhl.NewClient()
-	c := cache.New(rdb)
+	c := cache.New(rdb, collectInterval)
 
 	run := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
