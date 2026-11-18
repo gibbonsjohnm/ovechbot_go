@@ -150,6 +150,8 @@ func main() {
 		}
 
 		// Apply calibration scale from evaluator history (hit rate vs mean predicted prob).
+		// The evaluator logs uncalibratedPct so the next scale is measured against the model, not its own output.
+		uncalibratedPct := pct
 		if scale := calibrationScale(ctx, rdb); scale != 1.0 {
 			calibrated := int(float64(pct)*scale + 0.5)
 			if calibrated < 15 {
@@ -182,7 +184,7 @@ func main() {
 			slog.Info("reminder skip", "reason", "already_sent", "game_id", g.GameID)
 			return
 		}
-		if err := producer.Publish(ctx, g, pct, oddsAmerican, goalieName); err != nil {
+		if err := producer.Publish(ctx, g, pct, uncalibratedPct, oddsAmerican, goalieName); err != nil {
 			slog.Warn("publish reminder failed", "error", err)
 			return
 		}
@@ -201,30 +203,39 @@ func main() {
 	}
 }
 
-// calibrationScale reads evaluator history from Redis and returns scale = hit_rate / mean_predicted_prob (capped 0.8–1.2). Returns 1.0 if not enough data.
+// calibrationScale reads evaluator history from Redis and returns scale = hit_rate / mean_uncalibrated_prob (capped 0.8–1.2). Returns 1.0 if not enough data.
 func calibrationScale(ctx context.Context, rdb *redis.Client) float64 {
 	entries, err := rdb.LRange(ctx, calibrationLogKey, 0, 99).Result()
-	if err != nil || len(entries) < calibrationMinGames {
+	if err != nil {
 		return 1.0
 	}
-	var sumScored int
+	return calibrationScaleFrom(entries)
+}
+
+// calibrationScaleFrom computes the scale from the predictions as they were before calibration.
+// Measuring against the posted (already scaled) number makes the scale feed back on itself: a model that truly
+// runs 25% high would get 0.8, then read as calibrated and go back to 1.0, oscillating instead of settling.
+// Entries without uncalibrated_pct predate that field and are skipped.
+func calibrationScaleFrom(entries []string) float64 {
+	var n, sumScored int
 	var sumPredProb float64
 	for _, s := range entries {
 		var e struct {
-			PredPct int `json:"pred_pct"`
-			Scored  int `json:"scored"`
+			UncalibratedPct int `json:"uncalibrated_pct"`
+			Scored          int `json:"scored"`
 		}
-		if json.Unmarshal([]byte(s), &e) != nil {
+		if json.Unmarshal([]byte(s), &e) != nil || e.UncalibratedPct <= 0 {
 			continue
 		}
+		n++
 		sumScored += e.Scored
-		sumPredProb += float64(e.PredPct) / 100
+		sumPredProb += float64(e.UncalibratedPct) / 100
 	}
-	if sumPredProb <= 0 {
+	if n < calibrationMinGames || sumPredProb <= 0 {
 		return 1.0
 	}
-	hitRate := float64(sumScored) / float64(len(entries))
-	meanPred := sumPredProb / float64(len(entries))
+	hitRate := float64(sumScored) / float64(n)
+	meanPred := sumPredProb / float64(n)
 	scale := hitRate / meanPred
 	if scale < 0.8 {
 		scale = 0.8
