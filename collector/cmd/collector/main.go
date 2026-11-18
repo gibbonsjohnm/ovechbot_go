@@ -14,8 +14,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Seasons to fetch for Ovechkin game log (startYear+endYear format).
-var gameLogSeasons = []string{"20232024", "20242025", "20252026"}
+// Number of seasons (current plus prior) to fetch for Ovechkin game log.
+const gameLogSeasonCount = 3
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -47,7 +47,7 @@ func main() {
 		defer cancel()
 
 		var allLog []nhl.GameLogEntry
-		for _, seasonID := range gameLogSeasons {
+		for _, seasonID := range nhl.GameLogSeasons(time.Now(), gameLogSeasonCount) {
 			entries, err := nhlClient.GameLog(ctx, seasonID)
 			if err != nil {
 				slog.Warn("game log fetch failed", "season", seasonID, "error", err)
@@ -55,6 +55,7 @@ func main() {
 			}
 			allLog = append(allLog, entries...)
 		}
+		nhl.SortGameLog(allLog)
 		if len(allLog) > 0 {
 			if err := c.WriteGameLog(ctx, allLog); err != nil {
 				slog.Warn("write game log failed", "error", err)

@@ -10,7 +10,9 @@ import (
 
 const (
 	baselineGamesMax = 82
-	recentGames      = 5
+	// baselinePriorGames is how many games' weight last season's GPG gets when shrinking the current season's GPG toward it.
+	baselinePriorGames = 30
+	recentGames        = 5
 	// CalibrationScale can be tuned from historical hit rate (e.g. compare predicted % to actual over past seasons).
 	CalibrationScale = 1.0
 	// League-average save percentage; used for goalie strength factor when we have opposing starter SV%.
@@ -36,17 +38,8 @@ func Predict(g *schedule.Game, gameLog []cache.GameLogEntry, standings map[strin
 
 func predictHeuristic(g *schedule.Game, gameLog []cache.GameLogEntry, standings map[string]cache.StandingsTeam, goalieSavePct float64) int {
 
-	// Baseline GPG from last N games only (e.g. one season) so it reflects "current" Ovi.
-	baselineStart := 0
-	if len(gameLog) > baselineGamesMax {
-		baselineStart = len(gameLog) - baselineGamesMax
-	}
-	var totalGoals int
-	for i := baselineStart; i < len(gameLog); i++ {
-		totalGoals += gameLog[i].Goals
-	}
-	baselineLen := len(gameLog) - baselineStart
-	baselineGPG := float64(totalGoals) / float64(baselineLen)
+	// Baseline GPG: current season shrunk toward last season, so it reflects "current" Ovi.
+	baselineGPG := baselineGPGFrom(gameLog, baselineGamesMax)
 	baseProb := 1 - math.Exp(-baselineGPG)
 
 	// League-average GA (full-season) so opponent factor is relative to league.
@@ -100,7 +93,7 @@ func predictHeuristic(g *schedule.Game, gameLog []cache.GameLogEntry, standings 
 	// Opponent team strength: point % (stronger teams slightly harder to score on, same GA).
 	pointStrengthFactor := 1.0
 	if t, ok := standings[g.Opponent()]; ok && t.PointPctg > 0 {
-		pointStrengthFactor = 0.96 + 0.08*t.PointPctg
+		pointStrengthFactor = 1.04 - 0.08*t.PointPctg // .500 team → 1.0; stronger → lower
 		if pointStrengthFactor < 0.92 {
 			pointStrengthFactor = 0.92
 		}

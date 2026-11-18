@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"time"
 )
 
@@ -33,6 +34,31 @@ type GameLogEntry struct {
 	OpponentAbbrev  string `json:"opponentAbbrev"`
 	HomeRoadFlag    string `json:"homeRoadFlag"` // "H" or "R"
 	Goals           int    `json:"goals"`
+}
+
+// GameLogSeasons returns the season IDs (e.g. "20262027") to fetch as of now: the current season and the n-1 before it, oldest first.
+// The season rolls over on July 1 so the upcoming season is included before its first game.
+func GameLogSeasons(now time.Time, n int) []string {
+	start := now.Year()
+	if now.Month() < time.July {
+		start--
+	}
+	seasons := make([]string, 0, n)
+	for y := start - n + 1; y <= start; y++ {
+		seasons = append(seasons, fmt.Sprintf("%d%d", y, y+1))
+	}
+	return seasons
+}
+
+// SortGameLog orders entries oldest-first, which is what the predictor expects.
+// The NHL game-log endpoint returns each season newest-first.
+func SortGameLog(entries []GameLogEntry) {
+	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].GameDate != entries[j].GameDate {
+			return entries[i].GameDate < entries[j].GameDate
+		}
+		return entries[i].GameID < entries[j].GameID
+	})
 }
 
 // GameLog fetches regular-season game log for the given season (e.g. "20242025").

@@ -15,7 +15,7 @@ const (
 	GameLogKey    = "ovechkin:game_log"
 	StandingsKey  = "standings:now"
 	GameLogTTL    = 12 * time.Hour
-	StandingsTTL  = 1 * time.Hour
+	StandingsTTL  = 12 * time.Hour // must outlive COLLECTOR_INTERVAL (default 6h) or standings vanish between runs
 )
 
 // Cache writes game log and standings to Redis for the predictor.
