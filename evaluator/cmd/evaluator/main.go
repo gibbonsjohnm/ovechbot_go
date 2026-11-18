@@ -101,16 +101,11 @@ func run(rdb *redis.Client) {
 		return
 	}
 
-	// Hit = (we said >=50% and he scored) or (we said <50% and he didn't)
 	scored := stats.Goals > 0
-	hit := (predPct >= 50 && scored) || (predPct < 50 && !scored)
-	result := "Miss"
-	if hit {
-		result = "Hit"
-	}
 
-	// Brier score: (predicted_prob - actual)^2; lower is better (0 = perfect, 0.25 = random).
-	// Stored in the calibration log alongside hit/miss for a proper scoring-rule view of accuracy.
+	// Brier score: (predicted_prob - actual)^2; lower is better (0 = perfect, 0.25 = always saying 50%).
+	// Stored in the calibration log. A >=50% "hit/miss" cutoff isn't used: predictions are mostly 10-30%,
+	// so every goal would read as a miss no matter how well calibrated the bot is.
 	brierScore := 0.0
 	if predPct > 0 {
 		scoredFloat := 0.0
@@ -138,7 +133,7 @@ func run(rdb *redis.Client) {
 		msg += "_(No prediction snapshot for this game)_\n"
 	}
 
-	slog.Info("evaluator: publishing post-game summary", "game_id", game.GameID, "result", result, "brier_score", brierScore)
+	slog.Info("evaluator: publishing post-game summary", "game_id", game.GameID, "pred_pct", predPct, "scored", scored, "brier_score", brierScore)
 
 	payload, _ := json.Marshal(struct {
 		Message string `json:"message"`
