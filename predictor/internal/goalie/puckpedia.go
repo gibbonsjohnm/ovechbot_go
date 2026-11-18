@@ -33,12 +33,12 @@ var puckPediaCapsFragments = []string{capitalsMatch, "Capitals", "WAS"}
 
 // puckPediaOpponentAlternatives: for some opponents, PuckPedia uses nickname or abbrev (e.g. "Canadiens", "MTL" not "Montreal").
 var puckPediaOpponentAlternatives = map[string][]string{
-	"Montreal":   {"Canadiens", "MTL"},
-	"New Jersey": {"Devils", "NJD"},
-	"San Jose":   {"Sharks", "SJS"},
-	"Tampa Bay":  {"Lightning", "TBL"},
+	"Montreal":    {"Canadiens", "MTL"},
+	"New Jersey":  {"Devils", "NJD"},
+	"San Jose":    {"Sharks", "SJS"},
+	"Tampa Bay":   {"Lightning", "TBL"},
 	"Los Angeles": {"Kings", "LAK"},
-	"St. Louis":  {"Blues", "STL"},
+	"St. Louis":   {"Blues", "STL"},
 }
 
 // OpposingStarterFromPuckPedia fetches PuckPedia's starting-goalies page and returns the opposing

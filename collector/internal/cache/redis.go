@@ -12,20 +12,29 @@ import (
 )
 
 const (
-	GameLogKey    = "ovechkin:game_log"
-	StandingsKey  = "standings:now"
-	GameLogTTL    = 12 * time.Hour
-	StandingsTTL  = 12 * time.Hour // must outlive COLLECTOR_INTERVAL (default 6h) or standings vanish between runs
+	GameLogKey = "ovechkin:game_log"
+	minTTL     = 1 * time.Hour
 )
 
-// Cache writes game log and standings to Redis for the predictor.
-type Cache struct {
-	client *redis.Client
+// TTLFor returns how long written keys live when the collector refreshes every interval.
+// It is twice the interval so one failed run doesn't empty the cache; a TTL shorter than the interval
+// once left the predictor without data ~5 of every 6 hours.
+func TTLFor(interval time.Duration) time.Duration {
+	if ttl := 2 * interval; ttl > minTTL {
+		return ttl
+	}
+	return minTTL
 }
 
-// New returns a Cache that uses the given Redis client.
-func New(client *redis.Client) *Cache {
-	return &Cache{client: client}
+// Cache writes the game log to Redis for the predictor.
+type Cache struct {
+	client *redis.Client
+	ttl    time.Duration
+}
+
+// New returns a Cache that uses the given Redis client, sized for a collector that refreshes every interval.
+func New(client *redis.Client, interval time.Duration) *Cache {
+	return &Cache{client: client, ttl: TTLFor(interval)}
 }
 
 // WriteGameLog stores the merged game log (all seasons) as JSON.
@@ -34,14 +43,5 @@ func (c *Cache) WriteGameLog(ctx context.Context, entries []nhl.GameLogEntry) er
 	if err != nil {
 		return fmt.Errorf("marshal game log: %w", err)
 	}
-	return c.client.Set(ctx, GameLogKey, string(b), GameLogTTL).Err()
-}
-
-// WriteStandings stores standings as JSON (map teamAbbrev -> {gamesPlayed, goalAgainst, goalFor}).
-func (c *Cache) WriteStandings(ctx context.Context, standings map[string]nhl.StandingsTeam) error {
-	b, err := json.Marshal(standings)
-	if err != nil {
-		return fmt.Errorf("marshal standings: %w", err)
-	}
-	return c.client.Set(ctx, StandingsKey, string(b), StandingsTTL).Err()
+	return c.client.Set(ctx, GameLogKey, string(b), c.ttl).Err()
 }

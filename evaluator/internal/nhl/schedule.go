@@ -14,11 +14,11 @@ var httpClient = &http.Client{Timeout: 15 * time.Second}
 
 // CompletedGame is a Caps game that has finished.
 type CompletedGame struct {
-	GameID          int64
-	GameDate        string
-	HomeAbbrev      string
-	AwayAbbrev      string
-	OpponentAbbrev  string
+	GameID         int64
+	GameDate       string
+	HomeAbbrev     string
+	AwayAbbrev     string
+	OpponentAbbrev string
 }
 
 // CompletedGameStates are schedule gameState values for finished games (NHL API uses FINAL; OFF also accepted).
@@ -57,8 +57,12 @@ func LastCompletedGame(ctx context.Context) (*CompletedGame, error) {
 			GameDate     string `json:"gameDate"`
 			StartTimeUTC string `json:"startTimeUTC"`
 			GameState    string `json:"gameState"`
-			HomeTeam     struct{ Abbrev string `json:"abbrev"` } `json:"homeTeam"`
-			AwayTeam     struct{ Abbrev string `json:"abbrev"` } `json:"awayTeam"`
+			HomeTeam     struct {
+				Abbrev string `json:"abbrev"`
+			} `json:"homeTeam"`
+			AwayTeam struct {
+				Abbrev string `json:"abbrev"`
+			} `json:"awayTeam"`
 		} `json:"games"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&sched); err != nil {

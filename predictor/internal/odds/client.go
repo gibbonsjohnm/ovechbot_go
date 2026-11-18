@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -62,37 +63,53 @@ type eventOdds struct {
 
 // AnytimeOdds holds Ovechkin's anytime goal scorer line (American odds).
 type AnytimeOdds struct {
-	American string // e.g. "+140" or "-150"
-	Price    int    // raw American price for implied prob
+	American   string `json:"american"`              // Yes price, e.g. "+140" or "-150"
+	NoAmerican string `json:"no_american,omitempty"` // No price from the same book, when quoted
 }
 
-// ImpliedPct returns implied probability from American odds (0–100).
-func ImpliedPct(american int) int {
-	if american >= 0 {
-		return 100 * 100 / (100 + american)
+// MarketPct returns the market's probability (0–100) that he scores. With both sides quoted it removes the book's
+// margin (Yes implied / (Yes implied + No implied)); with only Yes it is the raw implied probability, which runs a
+// few points high.
+func (o AnytimeOdds) MarketPct() (int, bool) {
+	yes, ok := impliedProb(o.American)
+	if !ok {
+		return 0, false
 	}
-	return 100 * (-american) / (100 + (-american))
+	if no, ok := impliedProb(o.NoAmerican); ok && yes+no > 0 {
+		return int(math.Round(100 * yes / (yes + no))), true
+	}
+	return int(math.Round(100 * yes)), true
 }
 
-// ImpliedPctFromAmerican parses American odds string (e.g. "+140", "-150") and returns implied probability 0–100.
-// Returns (0, false) on parse failure.
-func ImpliedPctFromAmerican(s string) (int, bool) {
+// EncodeCache serializes the odds for the per-game Redis cache.
+func (o AnytimeOdds) EncodeCache() string {
+	b, _ := json.Marshal(o)
+	return string(b)
+}
+
+// DecodeCache reads a cached value; values cached before EncodeCache existed are the bare Yes price.
+func DecodeCache(s string) AnytimeOdds {
+	var o AnytimeOdds
+	if strings.HasPrefix(s, "{") && json.Unmarshal([]byte(s), &o) == nil {
+		return o
+	}
+	return AnytimeOdds{American: s}
+}
+
+// impliedProb parses American odds and returns the implied probability (0–1).
+func impliedProb(s string) (float64, bool) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return 0, false
 	}
-	negative := s[0] == '-'
-	if s[0] == '+' || s[0] == '-' {
-		s = s[1:]
-	}
-	price, err := strconv.Atoi(s)
-	if err != nil {
+	price, err := strconv.Atoi(strings.TrimPrefix(s, "+"))
+	if err != nil || price == 0 {
 		return 0, false
 	}
-	if negative {
-		price = -price
+	if price > 0 {
+		return 100 / (100 + float64(price)), true
 	}
-	return ImpliedPct(price), true
+	return float64(-price) / (100 + float64(-price)), true
 }
 
 // OvechkinAnytimeGoal fetches odds for the given game. Returns nil if API key is empty, game has no matching event, or Ovechkin line not found.
@@ -169,20 +186,37 @@ func (c *Client) fetchAnytimeOdds(ctx context.Context, eventID string) (*Anytime
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, err
 	}
+	// Prefer a book quoting both Yes and No (so MarketPct can remove the margin); otherwise the first Yes line.
+	var yesOnly *AnytimeOdds
 	for _, b := range data.Bookmakers {
 		for _, m := range b.Markets {
 			if m.Key != anytimeMarket {
 				continue
 			}
+			var line AnytimeOdds
 			for _, o := range m.Outcomes {
-				if strings.Contains(o.Description, ovechkinSearch) && (o.Name == "Yes" || o.Name == "Alex Ovechkin") {
-					american := formatAmerican(o.Price)
-					return &AnytimeOdds{American: american, Price: o.Price}, nil
+				if !strings.Contains(o.Description, ovechkinSearch) {
+					continue
 				}
+				switch o.Name {
+				case "Yes", "Alex Ovechkin":
+					line.American = formatAmerican(o.Price)
+				case "No":
+					line.NoAmerican = formatAmerican(o.Price)
+				}
+			}
+			if line.American == "" {
+				continue
+			}
+			if line.NoAmerican != "" {
+				return &line, nil
+			}
+			if yesOnly == nil {
+				yesOnly = &line
 			}
 		}
 	}
-	return nil, nil
+	return yesOnly, nil
 }
 
 func formatAmerican(price int) string {

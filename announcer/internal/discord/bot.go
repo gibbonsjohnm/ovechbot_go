@@ -28,7 +28,7 @@ type Bot struct {
 
 // Config for the Discord bot.
 type Config struct {
-	Token          string
+	Token             string
 	AnnounceChannelID string
 	OvechkinImageURL  string // optional; default used if empty
 }

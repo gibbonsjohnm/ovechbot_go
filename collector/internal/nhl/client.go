@@ -13,7 +13,6 @@ import (
 const (
 	OvechkinPlayerID = 8471214
 	GameLogURLFmt    = "https://api-web.nhle.com/v1/player/%d/game-log/%s/%d" // playerID, seasonID, gameTypeID
-	StandingsNowURL  = "https://api-web.nhle.com/v1/standings/now"
 	GameTypeRegular  = 2
 )
 
@@ -29,12 +28,12 @@ func NewClient() *Client {
 
 // GameLogEntry is one game in Ovechkin's game log (minimal for prediction).
 type GameLogEntry struct {
-	GameID          int    `json:"gameId"`
-	GameDate        string `json:"gameDate"`
-	OpponentAbbrev  string `json:"opponentAbbrev"`
-	HomeRoadFlag    string `json:"homeRoadFlag"` // "H" or "R"
-	Goals           int    `json:"goals"`
-	Shots           int    `json:"shots"`
+	GameID         int    `json:"gameId"`
+	GameDate       string `json:"gameDate"`
+	OpponentAbbrev string `json:"opponentAbbrev"`
+	HomeRoadFlag   string `json:"homeRoadFlag"` // "H" or "R"
+	Goals          int    `json:"goals"`
+	Shots          int    `json:"shots"`
 }
 
 // GameLogSeasons returns the season IDs (e.g. "20262027") to fetch as of now: the current season and the n-1 before it, oldest first.
@@ -104,101 +103,4 @@ func (c *Client) GameLog(ctx context.Context, seasonID string) ([]GameLogEntry, 
 		})
 	}
 	return entries, nil
-}
-
-// StandingsTeam is per-team stats for opponent strength and form.
-// Full-season: GA/GP, GF/GP, goal diff; home/road split for venue-specific GA; L10 for recent form; pointPctg for strength.
-type StandingsTeam struct {
-	TeamAbbrev           string  `json:"teamAbbrev"`
-	GamesPlayed          int     `json:"gamesPlayed"`
-	GoalAgainst          int     `json:"goalAgainst"`
-	GoalsFor             int     `json:"goalFor"`
-	GoalDifferential     int     `json:"goalDifferential"`
-	GoalDifferentialPctg float64 `json:"goalDifferentialPctg"`
-	GoalsForPctg         float64 `json:"goalsForPctg"`
-	PointPctg            float64 `json:"pointPctg"`
-	HomeGamesPlayed      int     `json:"homeGamesPlayed"`
-	HomeGoalsAgainst     int     `json:"homeGoalsAgainst"`
-	RoadGamesPlayed      int     `json:"roadGamesPlayed"`
-	RoadGoalsAgainst     int     `json:"roadGoalsAgainst"`
-	L10GamesPlayed       int     `json:"l10GamesPlayed"`
-	L10GoalsAgainst      int     `json:"l10GoalsAgainst"`
-	L10GoalsFor          int     `json:"l10GoalsFor"`
-}
-
-// teamAbbrevFrom extracts abbrev from API (can be string or object with default).
-func teamAbbrevFrom(v interface{}) string {
-	if s, ok := v.(string); ok {
-		return s
-	}
-	if m, ok := v.(map[string]interface{}); ok {
-		if d, ok := m["default"].(string); ok {
-			return d
-		}
-	}
-	return ""
-}
-
-// Standings fetches current standings; returns team abbrev -> StandingsTeam for GA/GP lookup.
-func (c *Client) Standings(ctx context.Context) (map[string]StandingsTeam, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, StandingsNowURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("standings status %d", resp.StatusCode)
-	}
-	var raw struct {
-		Standings []struct {
-			TeamAbbrev           interface{} `json:"teamAbbrev"`
-			GamesPlayed          int         `json:"gamesPlayed"`
-			GoalAgainst          int         `json:"goalAgainst"`
-			GoalFor              int         `json:"goalFor"`
-			GoalDifferential     int         `json:"goalDifferential"`
-			GoalDifferentialPctg float64    `json:"goalDifferentialPctg"`
-			GoalsForPctg         float64    `json:"goalsForPctg"`
-			PointPctg            float64    `json:"pointPctg"`
-			HomeGamesPlayed      int         `json:"homeGamesPlayed"`
-			HomeGoalsAgainst     int         `json:"homeGoalsAgainst"`
-			RoadGamesPlayed      int         `json:"roadGamesPlayed"`
-			RoadGoalsAgainst     int         `json:"roadGoalsAgainst"`
-			L10GamesPlayed       int         `json:"l10GamesPlayed"`
-			L10GoalsAgainst      int         `json:"l10GoalsAgainst"`
-			L10GoalsFor          int         `json:"l10GoalsFor"`
-		} `json:"standings"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return nil, err
-	}
-	m := make(map[string]StandingsTeam)
-	for _, t := range raw.Standings {
-		abbrev := teamAbbrevFrom(t.TeamAbbrev)
-		if abbrev == "" {
-			continue
-		}
-		m[abbrev] = StandingsTeam{
-			TeamAbbrev:           abbrev,
-			GamesPlayed:          t.GamesPlayed,
-			GoalAgainst:          t.GoalAgainst,
-			GoalsFor:             t.GoalFor,
-			GoalDifferential:     t.GoalDifferential,
-			GoalDifferentialPctg: t.GoalDifferentialPctg,
-			GoalsForPctg:         t.GoalsForPctg,
-			PointPctg:            t.PointPctg,
-			HomeGamesPlayed:      t.HomeGamesPlayed,
-			HomeGoalsAgainst:     t.HomeGoalsAgainst,
-			RoadGamesPlayed:      t.RoadGamesPlayed,
-			RoadGoalsAgainst:     t.RoadGoalsAgainst,
-			L10GamesPlayed:       t.L10GamesPlayed,
-			L10GoalsAgainst:      t.L10GoalsAgainst,
-			L10GoalsFor:          t.L10GoalsFor,
-		}
-	}
-	return m, nil
 }

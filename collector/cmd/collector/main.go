@@ -40,7 +40,7 @@ func main() {
 	}
 
 	nhlClient := nhl.NewClient()
-	c := cache.New(rdb)
+	c := cache.New(rdb, collectInterval)
 
 	run := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -62,17 +62,6 @@ func main() {
 			} else {
 				slog.Info("game log updated", "entries", len(allLog))
 			}
-		}
-
-		standings, err := nhlClient.Standings(ctx)
-		if err != nil {
-			slog.Warn("standings fetch failed", "error", err)
-			return
-		}
-		if err := c.WriteStandings(ctx, standings); err != nil {
-			slog.Warn("write standings failed", "error", err)
-		} else {
-			slog.Info("standings updated", "teams", len(standings))
 		}
 	}
 
