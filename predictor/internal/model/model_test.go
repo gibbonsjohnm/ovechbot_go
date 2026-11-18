@@ -10,17 +10,18 @@ import (
 
 func TestClampPct(t *testing.T) {
 	cases := []struct{ in, want int }{
-		{0, 15},
-		{14, 15},
-		{15, 15},
+		{0, 5},
+		{4, 5},
+		{5, 5},
+		{14, 14},
 		{50, 50},
 		{75, 75},
 		{76, 75},
 		{100, 75},
 	}
 	for _, tc := range cases {
-		if got := clampPct(tc.in); got != tc.want {
-			t.Errorf("clampPct(%d) = %d; want %d", tc.in, got, tc.want)
+		if got := ClampPct(tc.in); got != tc.want {
+			t.Errorf("ClampPct(%d) = %d; want %d", tc.in, got, tc.want)
 		}
 	}
 }
@@ -147,18 +148,18 @@ func TestPredict_HeuristicOnly(t *testing.T) {
 	g := &schedule.Game{HomeAbbrev: "WSH", AwayAbbrev: "PHI", StartTimeUTC: time.Now().Add(24 * time.Hour)}
 	log := makeGameLog(10)
 	got := Predict(g, log, makeStandings(), 0)
-	if got < 15 || got > 75 {
-		t.Errorf("Predict(heuristic-only) = %d; want in [15, 75]", got)
+	if got < MinPct || got > MaxPct {
+		t.Errorf("Predict(heuristic-only) = %d; want in [%d, %d]", got, MinPct, MaxPct)
 	}
 }
 
-func TestPredict_BlendedWithLogistic(t *testing.T) {
-	// 70 games — enough for logistic; result should be blended and clamped
+func TestPredict_LongLog(t *testing.T) {
+	// 70 games; result should be clamped
 	g := &schedule.Game{HomeAbbrev: "WSH", AwayAbbrev: "PHI", StartTimeUTC: time.Now().Add(24 * time.Hour)}
 	log := makeGameLog(70)
 	got := Predict(g, log, makeStandings(), 0)
-	if got < 15 || got > 75 {
-		t.Errorf("Predict(blended) = %d; want in [15, 75]", got)
+	if got < MinPct || got > MaxPct {
+		t.Errorf("Predict(long log) = %d; want in [%d, %d]", got, MinPct, MaxPct)
 	}
 }
 
@@ -202,6 +203,29 @@ func TestPredictHeuristic_SlumpLowersPrediction(t *testing.T) {
 	s := predictHeuristic(g, slump, nil, 0)
 	if s >= h {
 		t.Errorf("slump prediction = %d; want < healthy-season prediction = %d", s, h)
+	}
+}
+
+func TestPredict_SlumpCanGoBelowFifteen(t *testing.T) {
+	// 1 goal on 33 shots in 19 games after a 32-goal season: the evidence supports well under 15%, and neither a
+	// 15% floor nor a long-run model blended back in should hold it up.
+	g := &schedule.Game{HomeAbbrev: "PHI", AwayAbbrev: "WSH", StartTimeUTC: time.Now().Add(24 * time.Hour)}
+	log := append(seasonLogShots(2025, 82, 32, 244), seasonLogShots(2026, 19, 1, 33)...)
+	if got := Predict(g, log, nil, 0); got >= 15 {
+		t.Errorf("Predict(slump) = %d; want < 15", got)
+	}
+}
+
+func TestPredictHeuristic_GoalOrderWithinSeasonDoesNotMatter(t *testing.T) {
+	// Recent-form multipliers on the last 5 games hurt in backtests; the season baseline already reacts.
+	g := &schedule.Game{HomeAbbrev: "WSH", AwayAbbrev: "PHI", StartTimeUTC: time.Now().Add(24 * time.Hour)}
+	early := append(seasonLogShots(2025, 82, 32, 244), seasonLogShots(2026, 19, 3, 50)...)
+	late := append(seasonLogShots(2025, 82, 32, 244), seasonLogShots(2026, 19, 0, 50)...)
+	for i := len(late) - 3; i < len(late); i++ {
+		late[i].Goals = 1
+	}
+	if a, b := predictHeuristic(g, early, nil, 0), predictHeuristic(g, late, nil, 0); a != b {
+		t.Errorf("goals early in season = %d; goals in last 3 games = %d; want equal", a, b)
 	}
 }
 

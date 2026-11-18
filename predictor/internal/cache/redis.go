@@ -15,6 +15,7 @@ type GameLogEntry struct {
 	OpponentAbbrev string `json:"opponentAbbrev"`
 	HomeRoadFlag   string `json:"homeRoadFlag"`
 	Goals          int    `json:"goals"`
+	Shots          int    `json:"shots"`
 }
 
 // StandingsTeam matches collector's nhl.StandingsTeam (includes L10, venue split, strength metrics).

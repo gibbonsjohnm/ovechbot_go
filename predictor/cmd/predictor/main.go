@@ -137,13 +137,7 @@ func main() {
 		// Blend with market implied probability when odds available (85% model, 15% market).
 		if oddsAmerican != "" {
 			if implied, ok := odds.ImpliedPctFromAmerican(oddsAmerican); ok && implied > 0 {
-				blended := int(0.85*float64(pct) + 0.15*float64(implied) + 0.5)
-				if blended < 15 {
-					blended = 15
-				}
-				if blended > 75 {
-					blended = 75
-				}
+				blended := model.ClampPct(int(0.85*float64(pct) + 0.15*float64(implied) + 0.5))
 				slog.Info("prediction blended with market", "model_pct", pct, "implied_pct", implied, "final_pct", blended)
 				pct = blended
 			}
@@ -153,13 +147,7 @@ func main() {
 		// The evaluator logs uncalibratedPct so the next scale is measured against the model, not its own output.
 		uncalibratedPct := pct
 		if scale := calibrationScale(ctx, rdb); scale != 1.0 {
-			calibrated := int(float64(pct)*scale + 0.5)
-			if calibrated < 15 {
-				calibrated = 15
-			}
-			if calibrated > 75 {
-				calibrated = 75
-			}
+			calibrated := model.ClampPct(int(float64(pct)*scale + 0.5))
 			slog.Info("prediction calibrated", "before", pct, "scale", scale, "after", calibrated)
 			pct = calibrated
 		}

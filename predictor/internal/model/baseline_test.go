@@ -3,45 +3,9 @@ package model
 import (
 	"math"
 	"testing"
-	"time"
 
 	"ovechbot_go/predictor/internal/cache"
-	"ovechbot_go/predictor/internal/schedule"
 )
-
-func TestSigmoid(t *testing.T) {
-	// z > 20 clamps to exactly 1.0; z < -20 clamps to exactly 0.0; z == ±20 goes through exp.
-	if got := sigmoid(0); got != 0.5 {
-		t.Errorf("sigmoid(0) = %v; want 0.5", got)
-	}
-	if got := sigmoid(25); got != 1.0 {
-		t.Errorf("sigmoid(25) = %v; want 1.0", got)
-	}
-	if got := sigmoid(-25); got != 0.0 {
-		t.Errorf("sigmoid(-25) = %v; want 0.0", got)
-	}
-	// At the boundary z == 20 / -20 the exponential is computed (not clamped).
-	if got := sigmoid(20); got <= 0.99 || got > 1.0 {
-		t.Errorf("sigmoid(20) = %v; want > 0.99 and ≤ 1.0", got)
-	}
-	if got := sigmoid(-20); got < 0 || got >= 0.01 {
-		t.Errorf("sigmoid(-20) = %v; want ≥ 0 and < 0.01", got)
-	}
-	// Near-zero: sigmoid(1) should be ~0.731
-	s1 := sigmoid(1.0)
-	if s1 < 0.7 || s1 > 0.8 {
-		t.Errorf("sigmoid(1.0) = %v; want ~0.731", s1)
-	}
-}
-
-func TestDot(t *testing.T) {
-	if got := dot([]float64{1, 2, 3}, []float64{4, 5, 6}); got != 32 {
-		t.Errorf("dot = %v; want 32", got)
-	}
-	if got := dot([]float64{0}, []float64{99}); got != 0 {
-		t.Errorf("dot = %v; want 0", got)
-	}
-}
 
 func TestBaselineGPGFrom_Empty(t *testing.T) {
 	got := baselineGPGFrom(nil, 82)
@@ -119,6 +83,39 @@ func TestBaselineGPGFrom_PriorUsesSeasonsBeforeCurrent(t *testing.T) {
 	}
 }
 
+// seasonLogShots is seasonLog with shots spread as evenly as possible across the games.
+func seasonLogShots(startYear, games, goals, shots int) []cache.GameLogEntry {
+	log := seasonLog(startYear, games, goals)
+	for i := range log {
+		log[i].Shots = shots / games
+		if i < shots%games {
+			log[i].Shots++
+		}
+	}
+	return log
+}
+
+func TestBaselineGPGFrom_ShotBased(t *testing.T) {
+	// Last season 32 goals on 244 shots in 82 games; this season 1 goal on 33 shots in 19 games.
+	log := append(seasonLogShots(2025, 82, 32, 244), seasonLogShots(2026, 19, 1, 33)...)
+	got := baselineGPGFrom(log, 82)
+	shotsPerGame := (33 + baselineShotsPriorGames*244.0/82) / (19 + baselineShotsPriorGames)
+	shootingPct := (1 + baselineShPctPriorShots*32.0/244) / (33 + baselineShPctPriorShots)
+	if want := shotsPerGame * shootingPct; math.Abs(got-want) > 1e-9 {
+		t.Errorf("baselineGPGFrom = %v; want %v", got, want)
+	}
+}
+
+func TestBaselineGPGFrom_FewerShotsLowersBaseline(t *testing.T) {
+	// Same 1 goal this season: 1.7 shots a game is a smaller role than 3 a game, and the baseline should say so.
+	prior := seasonLogShots(2025, 82, 32, 244)
+	fewShots := baselineGPGFrom(append(append([]cache.GameLogEntry{}, prior...), seasonLogShots(2026, 19, 1, 33)...), 82)
+	manyShots := baselineGPGFrom(append(append([]cache.GameLogEntry{}, prior...), seasonLogShots(2026, 19, 1, 57)...), 82)
+	if fewShots >= manyShots {
+		t.Errorf("baseline on 33 shots = %v; want < baseline on 57 shots = %v", fewShots, manyShots)
+	}
+}
+
 func TestLeagueAvgGAFromStandings_Empty(t *testing.T) {
 	got := leagueAvgGAFromStandings(nil)
 	if got != 3.0 {
@@ -180,55 +177,5 @@ func makeStandings() map[string]cache.StandingsTeam {
 		"PIT": {GamesPlayed: 60, GoalAgainst: 210, HomeGamesPlayed: 30, HomeGoalsAgainst: 105, RoadGamesPlayed: 30, RoadGoalsAgainst: 105},
 		"BOS": {GamesPlayed: 60, GoalAgainst: 160, HomeGamesPlayed: 30, HomeGoalsAgainst: 80, RoadGamesPlayed: 30, RoadGoalsAgainst: 80},
 		"CBJ": {GamesPlayed: 60, GoalAgainst: 240, HomeGamesPlayed: 30, HomeGoalsAgainst: 120, RoadGamesPlayed: 30, RoadGoalsAgainst: 120},
-	}
-}
-
-func TestLogisticPredict_InsufficientData(t *testing.T) {
-	g := &schedule.Game{HomeAbbrev: "WSH", AwayAbbrev: "PHI", StartTimeUTC: time.Now().Add(24 * time.Hour)}
-	standings := makeStandings()
-
-	// 49 games — one short of threshold
-	got := LogisticPredict(g, makeGameLog(49), standings)
-	if got != -1 {
-		t.Errorf("LogisticPredict with 49 games = %d; want -1", got)
-	}
-}
-
-func TestLogisticPredict_SufficientData(t *testing.T) {
-	g := &schedule.Game{HomeAbbrev: "WSH", AwayAbbrev: "PHI", StartTimeUTC: time.Now().Add(24 * time.Hour)}
-	standings := makeStandings()
-
-	// 70 games — enough for logistic (>50 samples, >20 training samples after skip)
-	got := LogisticPredict(g, makeGameLog(70), standings)
-	if got < 15 || got > 75 {
-		t.Errorf("LogisticPredict = %d; want in [15, 75]", got)
-	}
-}
-
-func TestLogisticPredict_AwayGame(t *testing.T) {
-	// WSH is away team
-	g := &schedule.Game{HomeAbbrev: "PHI", AwayAbbrev: "WSH", StartTimeUTC: time.Now().Add(48 * time.Hour)}
-	standings := makeStandings()
-
-	got := LogisticPredict(g, makeGameLog(70), standings)
-	if got != -1 && (got < 15 || got > 75) {
-		t.Errorf("LogisticPredict (away) = %d; want in [15,75] or -1", got)
-	}
-}
-
-func TestLogisticPredict_Clamped(t *testing.T) {
-	// Build a log where Ovi scores every single game to push probability high.
-	// Result should still be clamped to ≤75.
-	log := make([]cache.GameLogEntry, 80)
-	for i := range log {
-		log[i] = cache.GameLogEntry{
-			GameDate: "2026-01-01", OpponentAbbrev: "PHI",
-			HomeRoadFlag: "H", Goals: 2,
-		}
-	}
-	g := &schedule.Game{HomeAbbrev: "WSH", AwayAbbrev: "PHI", StartTimeUTC: time.Now().Add(24 * time.Hour)}
-	got := LogisticPredict(g, log, makeStandings())
-	if got != -1 && got > 75 {
-		t.Errorf("LogisticPredict (always scores) = %d; want ≤75", got)
 	}
 }
