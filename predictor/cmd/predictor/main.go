@@ -116,29 +116,29 @@ func main() {
 		slog.Info("prediction", "probability_pct", pct, "game_id", g.GameID)
 
 		// Odds: use cache when possible; only call API when game is within 36h (500 credits/month limit).
-		oddsAmerican := ""
+		var line odds.AnytimeOdds
 		oddsKey := oddsCacheKeyPrefix + strconv.FormatInt(g.GameID, 10)
 		if cached, _ := rdb.Get(ctx, oddsKey).Result(); cached != "" {
-			oddsAmerican = cached
+			line = odds.DecodeCache(cached)
 		} else if until <= oddsFetchWindow && getEnv("ODDS_API_KEY", "") != "" {
 			if o, err := oddsClient.OvechkinAnytimeGoal(ctx, g); err != nil {
 				slog.Warn("odds fetch failed", "error", err)
 			} else if o != nil {
-				oddsAmerican = o.American
-				_ = rdb.Set(ctx, oddsKey, o.American, oddsCacheTTL).Err()
-				slog.Info("odds", "anytime_goal_american", o.American, "game_id", g.GameID)
+				line = *o
+				_ = rdb.Set(ctx, oddsKey, o.EncodeCache(), oddsCacheTTL).Err()
+				slog.Info("odds", "anytime_goal_american", o.American, "no_american", o.NoAmerican, "game_id", g.GameID)
 			} else {
 				slog.Info("odds not found for this game", "game_id", g.GameID, "hint", "no matching event or Ovechkin line in player_goal_scorer_anytime")
 			}
 		}
+		oddsAmerican := line.American
 
-		// Blend with market implied probability when odds available (85% model, 15% market).
-		if oddsAmerican != "" {
-			if implied, ok := odds.ImpliedPctFromAmerican(oddsAmerican); ok && implied > 0 {
-				blended := model.ClampPct(int(0.85*float64(pct) + 0.15*float64(implied) + 0.5))
-				slog.Info("prediction blended with market", "model_pct", pct, "implied_pct", implied, "final_pct", blended)
-				pct = blended
-			}
+		// Blend with the market's probability when odds available (85% model, 15% market).
+		// MarketPct removes the book's margin when the No side is quoted.
+		if market, ok := line.MarketPct(); ok && market > 0 {
+			blended := model.ClampPct(int(0.85*float64(pct) + 0.15*float64(market) + 0.5))
+			slog.Info("prediction blended with market", "model_pct", pct, "market_pct", market, "vig_removed", line.NoAmerican != "", "final_pct", blended)
+			pct = blended
 		}
 
 		// Apply calibration scale from evaluator history (hit rate vs mean predicted prob).
