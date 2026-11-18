@@ -1,6 +1,7 @@
 package model
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -73,6 +74,48 @@ func TestBaselineGPGFrom_MaxCap(t *testing.T) {
 	got := baselineGPGFrom(log, 82)
 	if got != 1.0 {
 		t.Errorf("baselineGPGFrom = %v; want 1.0", got)
+	}
+}
+
+// seasonLog builds games for one season (GameID prefix = startYear) with the given number of goals spread over the first games.
+func seasonLog(startYear, games, goals int) []cache.GameLogEntry {
+	log := make([]cache.GameLogEntry, games)
+	for i := range log {
+		log[i].GameID = startYear*1_000_000 + 20_000 + i + 1
+		if i < goals {
+			log[i].Goals = 1
+		}
+	}
+	return log
+}
+
+func TestBaselineGPGFrom_CurrentSeasonShrunkTowardPrior(t *testing.T) {
+	// Last season 32 goals in 82 games; this season 1 goal in 18. A flat 82-game window would give 28/82 ≈ 0.34,
+	// barely reacting to the slump. The baseline should weight the current season and only shrink it toward last season.
+	log := append(seasonLog(2025, 82, 32), seasonLog(2026, 18, 1)...)
+	got := baselineGPGFrom(log, 82)
+	want := (1 + baselinePriorGames*32.0/82) / (18 + baselinePriorGames)
+	if math.Abs(got-want) > 1e-9 {
+		t.Errorf("baselineGPGFrom = %v; want %v", got, want)
+	}
+}
+
+func TestBaselineGPGFrom_FirstGameOfSeasonLeansOnPrior(t *testing.T) {
+	// One scoreless game into a new season must not crater the baseline.
+	log := append(seasonLog(2025, 82, 41), seasonLog(2026, 1, 0)...)
+	got := baselineGPGFrom(log, 82)
+	if got < 0.45 {
+		t.Errorf("baselineGPGFrom after one game = %v; want close to last season's 0.5", got)
+	}
+}
+
+func TestBaselineGPGFrom_PriorUsesSeasonsBeforeCurrent(t *testing.T) {
+	// The prior is the maxGames games before the current season, not including it.
+	log := append(append(seasonLog(2024, 82, 0), seasonLog(2025, 82, 41)...), seasonLog(2026, 10, 5)...)
+	got := baselineGPGFrom(log, 82)
+	want := (5 + baselinePriorGames*0.5) / (10 + baselinePriorGames)
+	if math.Abs(got-want) > 1e-9 {
+		t.Errorf("baselineGPGFrom = %v; want %v", got, want)
 	}
 }
 

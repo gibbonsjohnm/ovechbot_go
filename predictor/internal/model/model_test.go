@@ -157,6 +157,36 @@ func TestPredict_GoalieFactor_Strong(t *testing.T) {
 	}
 }
 
+func TestPredictHeuristic_StrongerOpponentLowersPrediction(t *testing.T) {
+	// Same GA profile, different point %: the stronger team should be harder to score on.
+	g := &schedule.Game{HomeAbbrev: "WSH", AwayAbbrev: "PHI", StartTimeUTC: time.Now().Add(24 * time.Hour)}
+	log := makeGameLog(30)
+	base := cache.StandingsTeam{GamesPlayed: 60, GoalAgainst: 180, HomeGamesPlayed: 30, HomeGoalsAgainst: 90, RoadGamesPlayed: 30, RoadGoalsAgainst: 90}
+	strong, weak := base, base
+	strong.PointPctg, weak.PointPctg = 0.75, 0.25
+	vsStrong := predictHeuristic(g, log, map[string]cache.StandingsTeam{"PHI": strong}, 0)
+	vsWeak := predictHeuristic(g, log, map[string]cache.StandingsTeam{"PHI": weak}, 0)
+	if vsStrong >= vsWeak {
+		t.Errorf("vs strong opponent = %d; want < vs weak opponent = %d", vsStrong, vsWeak)
+	}
+}
+
+func TestPredictHeuristic_SlumpLowersPrediction(t *testing.T) {
+	// 1 goal in 18 this season after a 32-goal season should predict well below last season's rate.
+	g := &schedule.Game{HomeAbbrev: "WSH", AwayAbbrev: "PHI", StartTimeUTC: time.Now().Add(24 * time.Hour)}
+	healthy := append(seasonLog(2025, 82, 32), seasonLog(2026, 18, 7)...)
+	slump := append(seasonLog(2025, 82, 32), seasonLog(2026, 18, 1)...)
+	// Keep recent form identical (last 5 scoreless) so only the baseline differs.
+	for i := len(healthy) - 5; i < len(healthy); i++ {
+		healthy[i].Goals = 0
+	}
+	h := predictHeuristic(g, healthy, nil, 0)
+	s := predictHeuristic(g, slump, nil, 0)
+	if s >= h {
+		t.Errorf("slump prediction = %d; want < healthy-season prediction = %d", s, h)
+	}
+}
+
 func TestPredict_HomeVsAway(t *testing.T) {
 	// Home game should give higher or equal prediction vs away (home factor 1.05 vs 0.95)
 	log := makeGameLog(30)

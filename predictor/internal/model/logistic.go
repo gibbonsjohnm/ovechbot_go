@@ -188,23 +188,45 @@ func leagueAvgGAFromStandings(standings map[string]cache.StandingsTeam) float64 
 	return float64(sumGA) / float64(sumGP)
 }
 
+// baselineGPGFrom returns Ovi's baseline goals per game after the given (oldest-first) log: the current season's GPG
+// shrunk toward the GPG of the last maxGames games before it, with that prior weighted as baselinePriorGames games.
+// Early in a season this leans on last season; as games accumulate, the current season dominates.
+// (A flat last-82-games window barely reacts to a slump: 1 goal in 18 games after a 32-goal season still reads 0.34 GPG.)
 func baselineGPGFrom(gameLog []cache.GameLogEntry, maxGames int) float64 {
 	if len(gameLog) == 0 {
 		return 0.4
 	}
-	start := 0
-	if len(gameLog) > maxGames {
-		start = len(gameLog) - maxGames
+	split := len(gameLog)
+	cur := seasonOf(gameLog[split-1])
+	for split > 0 && seasonOf(gameLog[split-1]) == cur {
+		split--
 	}
+	current, prior := lastN(gameLog[split:], maxGames), lastN(gameLog[:split], maxGames)
+	if len(prior) == 0 {
+		return float64(sumGoals(current)) / float64(len(current))
+	}
+	priorGPG := float64(sumGoals(prior)) / float64(len(prior))
+	return (float64(sumGoals(current)) + baselinePriorGames*priorGPG) / (float64(len(current)) + baselinePriorGames)
+}
+
+// seasonOf returns the season start year encoded in an NHL game ID (2026020334 → 2026).
+func seasonOf(e cache.GameLogEntry) int {
+	return e.GameID / 1_000_000
+}
+
+func lastN(gameLog []cache.GameLogEntry, n int) []cache.GameLogEntry {
+	if len(gameLog) > n {
+		return gameLog[len(gameLog)-n:]
+	}
+	return gameLog
+}
+
+func sumGoals(gameLog []cache.GameLogEntry) int {
 	var goals int
-	for i := start; i < len(gameLog); i++ {
-		goals += gameLog[i].Goals
+	for _, e := range gameLog {
+		goals += e.Goals
 	}
-	n := len(gameLog) - start
-	if n == 0 {
-		return 0.4
-	}
-	return float64(goals) / float64(n)
+	return goals
 }
 
 func sigmoid(z float64) float64 {
