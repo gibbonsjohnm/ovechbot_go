@@ -57,6 +57,24 @@ func TestRestFactor_Rested(t *testing.T) {
 	}
 }
 
+func TestRestFactor_EveningGameBackToBack(t *testing.T) {
+	// Nov 27 → Nov 28 at 7pm ET, which is 00:00 UTC Nov 29. Must use the local game date, not the UTC date.
+	log := []cache.GameLogEntry{{GameDate: "2026-11-27"}}
+	g := &schedule.Game{GameDate: "2026-11-28", StartTimeUTC: time.Date(2026, 11, 29, 0, 0, 0, 0, time.UTC)}
+	if got := restFactor(g, log); got != 0.92 {
+		t.Errorf("restFactor(evening back-to-back) = %v; want 0.92", got)
+	}
+}
+
+func TestRestFactor_OneDayOffIsNeutral(t *testing.T) {
+	// Nov 26 → Nov 28: one day off is normal rest, not "rested" (2+ days off).
+	log := []cache.GameLogEntry{{GameDate: "2026-11-26"}}
+	g := &schedule.Game{GameDate: "2026-11-28", StartTimeUTC: time.Date(2026, 11, 29, 0, 0, 0, 0, time.UTC)}
+	if got := restFactor(g, log); got != 1.0 {
+		t.Errorf("restFactor(one day off) = %v; want 1.0", got)
+	}
+}
+
 func TestRestFactor_BadDate(t *testing.T) {
 	log := []cache.GameLogEntry{
 		{GameDate: "not-a-date", Goals: 0},

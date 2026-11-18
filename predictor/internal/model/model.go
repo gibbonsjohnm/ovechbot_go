@@ -232,6 +232,7 @@ func clampPct(pct int) int {
 }
 
 // restFactor returns 0.92 for back-to-back (game next day or same day after last), 1.02 for 2+ days rest, else 1.0.
+// Both dates are local game dates: a 7pm ET start is already the next day in UTC, which would hide back-to-backs.
 func restFactor(g *schedule.Game, gameLog []cache.GameLogEntry) float64 {
 	if len(gameLog) == 0 {
 		return 1.0
@@ -241,14 +242,16 @@ func restFactor(g *schedule.Game, gameLog []cache.GameLogEntry) float64 {
 	if err != nil {
 		return 1.0
 	}
-	nextDate := g.StartTimeUTC.UTC().Truncate(24 * time.Hour)
-	lastDateUTC := time.Date(lastDate.Year(), lastDate.Month(), lastDate.Day(), 0, 0, 0, 0, time.UTC)
-	daysBetween := int(nextDate.Sub(lastDateUTC).Hours() / 24)
+	nextDate, err := time.Parse("2006-01-02", g.GameDate)
+	if err != nil {
+		nextDate = g.StartTimeUTC.UTC().Truncate(24 * time.Hour)
+	}
+	daysBetween := int(nextDate.Sub(lastDate).Hours() / 24)
 	switch {
 	case daysBetween <= 1:
 		return 0.92 // back-to-back
-	case daysBetween >= 2:
-		return 1.02 // rested
+	case daysBetween >= 3:
+		return 1.02 // rested (2+ days off)
 	default:
 		return 1.0
 	}
