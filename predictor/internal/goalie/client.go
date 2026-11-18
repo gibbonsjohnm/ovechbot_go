@@ -93,16 +93,20 @@ func (c *Client) opposingStarterFromBoxscore(ctx context.Context, g *schedule.Ga
 		PlayerByGameStats struct {
 			AwayTeam struct {
 				Goalies []struct {
-					PlayerID int    `json:"playerId"`
-					Name     struct { Default string `json:"default"` } `json:"name"`
-					Starter  bool   `json:"starter"`
+					PlayerID int `json:"playerId"`
+					Name     struct {
+						Default string `json:"default"`
+					} `json:"name"`
+					Starter bool `json:"starter"`
 				} `json:"goalies"`
 			} `json:"awayTeam"`
 			HomeTeam struct {
 				Goalies []struct {
-					PlayerID int    `json:"playerId"`
-					Name     struct { Default string `json:"default"` } `json:"name"`
-					Starter  bool   `json:"starter"`
+					PlayerID int `json:"playerId"`
+					Name     struct {
+						Default string `json:"default"`
+					} `json:"name"`
+					Starter bool `json:"starter"`
 				} `json:"goalies"`
 			} `json:"homeTeam"`
 		} `json:"playerByGameStats"`

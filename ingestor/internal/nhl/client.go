@@ -133,23 +133,31 @@ func (c *Client) LastGoalGameInfo(ctx context.Context) (*LastGoalGameInfo, error
 	var box struct {
 		AwayTeam struct {
 			Abbrev     string `json:"abbrev"`
-			CommonName struct { Default string `json:"default"` } `json:"commonName"`
+			CommonName struct {
+				Default string `json:"default"`
+			} `json:"commonName"`
 		} `json:"awayTeam"`
 		HomeTeam struct {
 			Abbrev     string `json:"abbrev"`
-			CommonName struct { Default string `json:"default"` } `json:"commonName"`
+			CommonName struct {
+				Default string `json:"default"`
+			} `json:"commonName"`
 		} `json:"homeTeam"`
 		PlayerByGameStats struct {
 			AwayTeam struct {
 				Goalies []struct {
-					Name    struct { Default string `json:"default"` } `json:"name"`
-					Starter bool   `json:"starter"`
+					Name struct {
+						Default string `json:"default"`
+					} `json:"name"`
+					Starter bool `json:"starter"`
 				} `json:"goalies"`
 			} `json:"awayTeam"`
 			HomeTeam struct {
 				Goalies []struct {
-					Name    struct { Default string `json:"default"` } `json:"name"`
-					Starter bool   `json:"starter"`
+					Name struct {
+						Default string `json:"default"`
+					} `json:"name"`
+					Starter bool `json:"starter"`
 				} `json:"goalies"`
 			} `json:"homeTeam"`
 		} `json:"playerByGameStats"`
@@ -233,12 +241,16 @@ func (c *Client) CapsGameFromScoreNow(ctx context.Context) (*CapsGame, error) {
 
 	var payload struct {
 		Games []struct {
-			ID         int    `json:"id"`
-			GameType   int    `json:"gameType"`
-			GameState  string `json:"gameState"`
-			AwayTeam   struct{ Abbrev string `json:"abbrev"` } `json:"awayTeam"`
-			HomeTeam   struct{ Abbrev string `json:"abbrev"` } `json:"homeTeam"`
-			Goals      []GameGoal `json:"goals"`
+			ID        int    `json:"id"`
+			GameType  int    `json:"gameType"`
+			GameState string `json:"gameState"`
+			AwayTeam  struct {
+				Abbrev string `json:"abbrev"`
+			} `json:"awayTeam"`
+			HomeTeam struct {
+				Abbrev string `json:"abbrev"`
+			} `json:"homeTeam"`
+			Goals []GameGoal `json:"goals"`
 		} `json:"games"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
@@ -284,23 +296,31 @@ func (c *Client) GoalGameInfo(ctx context.Context, gameID int) (*LastGoalGameInf
 	var box struct {
 		AwayTeam struct {
 			Abbrev     string `json:"abbrev"`
-			CommonName struct { Default string `json:"default"` } `json:"commonName"`
+			CommonName struct {
+				Default string `json:"default"`
+			} `json:"commonName"`
 		} `json:"awayTeam"`
 		HomeTeam struct {
 			Abbrev     string `json:"abbrev"`
-			CommonName struct { Default string `json:"default"` } `json:"commonName"`
+			CommonName struct {
+				Default string `json:"default"`
+			} `json:"commonName"`
 		} `json:"homeTeam"`
 		PlayerByGameStats struct {
 			AwayTeam struct {
 				Goalies []struct {
-					Name    struct { Default string `json:"default"` } `json:"name"`
-					Starter bool   `json:"starter"`
+					Name struct {
+						Default string `json:"default"`
+					} `json:"name"`
+					Starter bool `json:"starter"`
 				} `json:"goalies"`
 			} `json:"awayTeam"`
 			HomeTeam struct {
 				Goalies []struct {
-					Name    struct { Default string `json:"default"` } `json:"name"`
-					Starter bool   `json:"starter"`
+					Name struct {
+						Default string `json:"default"`
+					} `json:"name"`
+					Starter bool `json:"starter"`
 				} `json:"goalies"`
 			} `json:"homeTeam"`
 		} `json:"playerByGameStats"`
@@ -376,8 +396,12 @@ func (c *Client) GoalieForGoal(ctx context.Context, gameID, scoringPlayerID, goa
 		RosterSpots []struct {
 			PlayerID     int    `json:"playerId"`
 			PositionCode string `json:"positionCode"`
-			FirstName    struct { Default string `json:"default"` } `json:"firstName"`
-			LastName     struct { Default string `json:"default"` } `json:"lastName"`
+			FirstName    struct {
+				Default string `json:"default"`
+			} `json:"firstName"`
+			LastName struct {
+				Default string `json:"default"`
+			} `json:"lastName"`
 		} `json:"rosterSpots"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&pbp); err != nil {

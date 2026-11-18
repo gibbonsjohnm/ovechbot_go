@@ -16,7 +16,6 @@ import (
 )
 
 const (
-	gameLogKey               = "ovechkin:game_log"
 	predictionSnapshotPrefix = "ovechkin:prediction_snapshot:"
 	lastReportedKey          = "ovechkin:evaluator_last_reported_game"
 	postGameStreamKey        = "ovechkin:post_game" // announcer consumes this and posts to Discord

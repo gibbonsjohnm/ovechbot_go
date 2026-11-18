@@ -65,8 +65,12 @@ func NextGame(ctx context.Context) (*Game, error) {
 			GameDate     string `json:"gameDate"`
 			StartTimeUTC string `json:"startTimeUTC"`
 			GameState    string `json:"gameState"`
-			HomeTeam     struct{ Abbrev string `json:"abbrev"` } `json:"homeTeam"`
-			AwayTeam     struct{ Abbrev string `json:"abbrev"` } `json:"awayTeam"`
+			HomeTeam     struct {
+				Abbrev string `json:"abbrev"`
+			} `json:"homeTeam"`
+			AwayTeam struct {
+				Abbrev string `json:"abbrev"`
+			} `json:"awayTeam"`
 		} `json:"games"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&sched); err != nil {

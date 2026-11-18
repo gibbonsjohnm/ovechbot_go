@@ -24,8 +24,8 @@ const (
 	checkInterval       = 10 * time.Minute
 	reminderWindow      = 55 * time.Minute // send reminder when game is in 55-65 min
 	reminderWindowEnd   = 65 * time.Minute
-	oddsFetchWindow     = 36 * time.Hour   // only call Odds API when game is within 36h (saves credits)
-	oddsCacheTTL        = 12 * time.Hour   // cache odds per game_id so we don't refetch every tick
+	oddsFetchWindow     = 36 * time.Hour // only call Odds API when game is within 36h (saves credits)
+	oddsCacheTTL        = 12 * time.Hour // cache odds per game_id so we don't refetch every tick
 	oddsCacheKeyPrefix  = "ovechkin:odds:"
 	calibrationLogKey   = "ovechkin:calibration:log"
 	calibrationMinGames = 10

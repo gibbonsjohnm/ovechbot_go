@@ -168,7 +168,7 @@ func TestPredict_GoalieFactor_Strong(t *testing.T) {
 	g := &schedule.Game{HomeAbbrev: "WSH", AwayAbbrev: "PHI", StartTimeUTC: time.Now().Add(24 * time.Hour)}
 	log := makeGameLog(30)
 	standings := makeStandings()
-	withAvgGoalie := Predict(g, log, standings, 0.905)  // league average — factor ~1.0
+	withAvgGoalie := Predict(g, log, standings, 0.905)   // league average — factor ~1.0
 	withEliteGoalie := Predict(g, log, standings, 0.940) // elite — factor ~0.90 → lower
 	// Elite goalie should give equal or lower prediction
 	if withEliteGoalie > withAvgGoalie+2 { // allow small rounding

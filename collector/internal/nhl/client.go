@@ -29,12 +29,12 @@ func NewClient() *Client {
 
 // GameLogEntry is one game in Ovechkin's game log (minimal for prediction).
 type GameLogEntry struct {
-	GameID          int    `json:"gameId"`
-	GameDate        string `json:"gameDate"`
-	OpponentAbbrev  string `json:"opponentAbbrev"`
-	HomeRoadFlag    string `json:"homeRoadFlag"` // "H" or "R"
-	Goals           int    `json:"goals"`
-	Shots           int    `json:"shots"`
+	GameID         int    `json:"gameId"`
+	GameDate       string `json:"gameDate"`
+	OpponentAbbrev string `json:"opponentAbbrev"`
+	HomeRoadFlag   string `json:"homeRoadFlag"` // "H" or "R"
+	Goals          int    `json:"goals"`
+	Shots          int    `json:"shots"`
 }
 
 // GameLogSeasons returns the season IDs (e.g. "20262027") to fetch as of now: the current season and the n-1 before it, oldest first.
@@ -161,9 +161,9 @@ func (c *Client) Standings(ctx context.Context) (map[string]StandingsTeam, error
 			GoalAgainst          int         `json:"goalAgainst"`
 			GoalFor              int         `json:"goalFor"`
 			GoalDifferential     int         `json:"goalDifferential"`
-			GoalDifferentialPctg float64    `json:"goalDifferentialPctg"`
-			GoalsForPctg         float64    `json:"goalsForPctg"`
-			PointPctg            float64    `json:"pointPctg"`
+			GoalDifferentialPctg float64     `json:"goalDifferentialPctg"`
+			GoalsForPctg         float64     `json:"goalsForPctg"`
+			PointPctg            float64     `json:"pointPctg"`
 			HomeGamesPlayed      int         `json:"homeGamesPlayed"`
 			HomeGoalsAgainst     int         `json:"homeGoalsAgainst"`
 			RoadGamesPlayed      int         `json:"roadGamesPlayed"`
