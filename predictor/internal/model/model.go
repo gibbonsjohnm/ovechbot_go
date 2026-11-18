@@ -37,6 +37,11 @@ func Predict(g *schedule.Game, gameLog []cache.GameLogEntry, standings map[strin
 }
 
 func predictHeuristic(g *schedule.Game, gameLog []cache.GameLogEntry, standings map[string]cache.StandingsTeam, goalieSavePct float64) int {
+	return ClampPct(int(math.Round(heuristicProb(g, gameLog, standings, goalieSavePct) * 100)))
+}
+
+// heuristicProb is the unrounded, unclamped probability (0–1) behind predictHeuristic.
+func heuristicProb(g *schedule.Game, gameLog []cache.GameLogEntry, standings map[string]cache.StandingsTeam, goalieSavePct float64) float64 {
 
 	// Baseline: this season's shots per game x shooting %, each shrunk toward last season, so it reflects "current" Ovi.
 	// No separate recent-form factor: it made backtests worse, and the season baseline already reacts.
@@ -97,8 +102,7 @@ func predictHeuristic(g *schedule.Game, gameLog []cache.GameLogEntry, standings 
 		}
 	}
 
-	prob := baseProb * oppFactor * homeFactor * oviVsOppFactor * pointStrengthFactor * paceFactor * restFactor * goalieFactor * CalibrationScale
-	return ClampPct(int(math.Round(prob * 100)))
+	return baseProb * oppFactor * homeFactor * oviVsOppFactor * pointStrengthFactor * paceFactor * restFactor * goalieFactor * CalibrationScale
 }
 
 // effectiveOppGAPerGameVenue returns venue-specific GA/GP when available: Caps home → opponent's road GA; Caps away → opponent's home GA.
