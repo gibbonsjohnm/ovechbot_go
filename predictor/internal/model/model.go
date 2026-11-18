@@ -10,9 +10,15 @@ import (
 
 const (
 	baselineGamesMax = 82
-	// baselinePriorGames is how many games' weight last season's GPG gets when shrinking the current season's GPG toward it.
-	baselinePriorGames = 30
-	recentGames        = 5
+	// baselineShotsPriorGames is how many games' weight last season's shots per game gets against this season's.
+	baselineShotsPriorGames = 3
+	// baselineShPctPriorShots is how many shots' weight last season's shooting % gets against this season's.
+	baselineShPctPriorShots = 40
+	// baselinePriorGames is the prior weight in games for the goals-per-game fallback when the log has no shot data.
+	baselinePriorGames = 15
+	// MinPct and MaxPct bound every published probability.
+	MinPct = 5
+	MaxPct = 75
 	// CalibrationScale can be tuned from historical hit rate (e.g. compare predicted % to actual over past seasons).
 	CalibrationScale = 1.0
 	// League-average save percentage; used for goalie strength factor when we have opposing starter SV%.
@@ -22,23 +28,18 @@ const (
 )
 
 // Predict returns estimated probability (0-100) that Ovechkin scores in the given game.
-// When we have enough game-log history (50+ games), the result is a 50/50 blend of the heuristic and a logistic model trained on the same log.
 // goalieSavePct is the opposing starter's season save percentage (0–1); 0 means unknown and no goalie factor is applied.
 func Predict(g *schedule.Game, gameLog []cache.GameLogEntry, standings map[string]cache.StandingsTeam, goalieSavePct float64) int {
 	if len(gameLog) == 0 {
 		return 45
 	}
-	heuristic := predictHeuristic(g, gameLog, standings, goalieSavePct)
-	if logPct := LogisticPredict(g, gameLog, standings); logPct >= 0 {
-		// Blend heuristic and logistic
-		return clampPct((heuristic + logPct) / 2)
-	}
-	return heuristic
+	return predictHeuristic(g, gameLog, standings, goalieSavePct)
 }
 
 func predictHeuristic(g *schedule.Game, gameLog []cache.GameLogEntry, standings map[string]cache.StandingsTeam, goalieSavePct float64) int {
 
-	// Baseline GPG: current season shrunk toward last season, so it reflects "current" Ovi.
+	// Baseline: this season's shots per game x shooting %, each shrunk toward last season, so it reflects "current" Ovi.
+	// No separate recent-form factor: it made backtests worse, and the season baseline already reacts.
 	baselineGPG := baselineGPGFrom(gameLog, baselineGamesMax)
 	baseProb := 1 - math.Exp(-baselineGPG)
 
@@ -61,30 +62,6 @@ func predictHeuristic(g *schedule.Game, gameLog []cache.GameLogEntry, standings 
 	homeFactor := 0.95
 	if g.IsHome() {
 		homeFactor = 1.05
-	}
-
-	// Recent form: last N games (game log is chronological oldest-first, so take from the end).
-	n := recentGames
-	if len(gameLog) < n {
-		n = len(gameLog)
-	}
-	var recentGoals int
-	start := len(gameLog) - n
-	if start < 0 {
-		start = 0
-	}
-	for i := start; i < len(gameLog); i++ {
-		recentGoals += gameLog[i].Goals
-	}
-	recentFactor := 1.0
-	if n > 0 && baselineGPG > 0 {
-		recentFactor = (float64(recentGoals) / float64(n)) / baselineGPG
-		if recentFactor > 1.4 {
-			recentFactor = 1.4
-		}
-		if recentFactor < 0.6 {
-			recentFactor = 0.6
-		}
 	}
 
 	// Ovi vs this opponent: his historical GPG vs this team vs baseline (last 10 meetings or all).
@@ -120,14 +97,8 @@ func predictHeuristic(g *schedule.Game, gameLog []cache.GameLogEntry, standings 
 		}
 	}
 
-	prob := baseProb * oppFactor * homeFactor * recentFactor * oviVsOppFactor * pointStrengthFactor * paceFactor * restFactor * goalieFactor * CalibrationScale
-	return clampPct(int(math.Round(prob * 100)))
-}
-
-// effectiveOppGAPerGame returns goals-against per game for the opponent (no venue), blending full-season with L10.
-// Used by logistic training where we don't have venue in the same way.
-func effectiveOppGAPerGame(t cache.StandingsTeam) float64 {
-	return effectiveOppGAPerGameVenue(t, false)
+	prob := baseProb * oppFactor * homeFactor * oviVsOppFactor * pointStrengthFactor * paceFactor * restFactor * goalieFactor * CalibrationScale
+	return ClampPct(int(math.Round(prob * 100)))
 }
 
 // effectiveOppGAPerGameVenue returns venue-specific GA/GP when available: Caps home → opponent's road GA; Caps away → opponent's home GA.
@@ -221,17 +192,19 @@ func leagueAvgPaceFromStandings(standings map[string]cache.StandingsTeam) float6
 	return (float64(sumGF) + float64(sumGA)) / float64(2*sumGP)
 }
 
-func clampPct(pct int) int {
-	if pct < 15 {
-		return 15
+// ClampPct bounds a probability percentage to [MinPct, MaxPct].
+func ClampPct(pct int) int {
+	if pct < MinPct {
+		return MinPct
 	}
-	if pct > 75 {
-		return 75
+	if pct > MaxPct {
+		return MaxPct
 	}
 	return pct
 }
 
 // restFactor returns 0.92 for back-to-back (game next day or same day after last), 1.02 for 2+ days rest, else 1.0.
+// Both dates are local game dates: a 7pm ET start is already the next day in UTC, which would hide back-to-backs.
 func restFactor(g *schedule.Game, gameLog []cache.GameLogEntry) float64 {
 	if len(gameLog) == 0 {
 		return 1.0
@@ -241,14 +214,16 @@ func restFactor(g *schedule.Game, gameLog []cache.GameLogEntry) float64 {
 	if err != nil {
 		return 1.0
 	}
-	nextDate := g.StartTimeUTC.UTC().Truncate(24 * time.Hour)
-	lastDateUTC := time.Date(lastDate.Year(), lastDate.Month(), lastDate.Day(), 0, 0, 0, 0, time.UTC)
-	daysBetween := int(nextDate.Sub(lastDateUTC).Hours() / 24)
+	nextDate, err := time.Parse("2006-01-02", g.GameDate)
+	if err != nil {
+		nextDate = g.StartTimeUTC.UTC().Truncate(24 * time.Hour)
+	}
+	daysBetween := int(nextDate.Sub(lastDate).Hours() / 24)
 	switch {
 	case daysBetween <= 1:
 		return 0.92 // back-to-back
-	case daysBetween >= 2:
-		return 1.02 // rested
+	case daysBetween >= 3:
+		return 1.02 // rested (2+ days off)
 	default:
 		return 1.0
 	}

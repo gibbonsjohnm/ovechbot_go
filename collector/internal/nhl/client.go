@@ -34,6 +34,7 @@ type GameLogEntry struct {
 	OpponentAbbrev  string `json:"opponentAbbrev"`
 	HomeRoadFlag    string `json:"homeRoadFlag"` // "H" or "R"
 	Goals           int    `json:"goals"`
+	Shots           int    `json:"shots"`
 }
 
 // GameLogSeasons returns the season IDs (e.g. "20262027") to fetch as of now: the current season and the n-1 before it, oldest first.
@@ -85,6 +86,7 @@ func (c *Client) GameLog(ctx context.Context, seasonID string) ([]GameLogEntry, 
 			OpponentAbbrev string `json:"opponentAbbrev"`
 			HomeRoadFlag   string `json:"homeRoadFlag"`
 			Goals          int    `json:"goals"`
+			Shots          int    `json:"shots"`
 		} `json:"gameLog"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
@@ -98,6 +100,7 @@ func (c *Client) GameLog(ctx context.Context, seasonID string) ([]GameLogEntry, 
 			OpponentAbbrev: g.OpponentAbbrev,
 			HomeRoadFlag:   g.HomeRoadFlag,
 			Goals:          g.Goals,
+			Shots:          g.Shots,
 		})
 	}
 	return entries, nil

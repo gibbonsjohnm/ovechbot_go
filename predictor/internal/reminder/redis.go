@@ -28,8 +28,10 @@ type Payload struct {
 	Opponent       string `json:"opponent"`
 	HomeAway       string `json:"home_away"`
 	ProbabilityPct int    `json:"probability_pct"`
-	StartTimeUTC   string `json:"start_time_utc"`
-	GameDate       string `json:"game_date"`
+	// UncalibratedPct is ProbabilityPct before the calibration scale; the evaluator logs it so calibration doesn't feed on itself.
+	UncalibratedPct int    `json:"uncalibrated_pct,omitempty"`
+	StartTimeUTC    string `json:"start_time_utc"`
+	GameDate        string `json:"game_date"`
 	// OddsAmerican is Ovechkin anytime goal scorer (e.g. "+140"). Optional.
 	OddsAmerican string `json:"odds_american,omitempty"`
 	// GoalieName is the opposing starter (e.g. "S. Ersson"). Optional; may be empty until lineup is published.
@@ -59,20 +61,21 @@ func (p *Producer) AlreadySent(ctx context.Context, gameID int64) (bool, error) 
 // Publish writes a reminder to the stream, marks the game as sent, and locks
 // in the prediction snapshot so the evaluator sees the same numbers as the
 // pre-game message.
-func (p *Producer) Publish(ctx context.Context, g *schedule.Game, probabilityPct int, oddsAmerican, goalieName string) error {
+func (p *Producer) Publish(ctx context.Context, g *schedule.Game, probabilityPct, uncalibratedPct int, oddsAmerican, goalieName string) error {
 	homeAway := "AWAY"
 	if g.IsHome() {
 		homeAway = "HOME"
 	}
 	payload := Payload{
-		GameID:         g.GameID,
-		Opponent:       g.Opponent(),
-		HomeAway:       homeAway,
-		ProbabilityPct: probabilityPct,
-		StartTimeUTC:   g.StartTimeUTC.Format(time.RFC3339),
-		GameDate:       g.GameDate,
-		OddsAmerican:   oddsAmerican,
-		GoalieName:     goalieName,
+		GameID:          g.GameID,
+		Opponent:        g.Opponent(),
+		HomeAway:        homeAway,
+		ProbabilityPct:  probabilityPct,
+		UncalibratedPct: uncalibratedPct,
+		StartTimeUTC:    g.StartTimeUTC.Format(time.RFC3339),
+		GameDate:        g.GameDate,
+		OddsAmerican:    oddsAmerican,
+		GoalieName:      goalieName,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

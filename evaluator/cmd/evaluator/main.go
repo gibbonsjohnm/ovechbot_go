@@ -20,16 +20,18 @@ const (
 	predictionSnapshotPrefix = "ovechkin:prediction_snapshot:"
 	lastReportedKey          = "ovechkin:evaluator_last_reported_game"
 	postGameStreamKey        = "ovechkin:post_game" // announcer consumes this and posts to Discord
-	calibrationLogKey       = "ovechkin:calibration:log"
+	calibrationLogKey        = "ovechkin:calibration:log"
 	checkInterval            = 15 * time.Minute
 	evaluatorRunTimeout      = 90 * time.Second
 )
 
 type predictionSnapshot struct {
-	GameID         int64  `json:"game_id"`
-	ProbabilityPct int    `json:"probability_pct"`
-	OddsAmerican  string `json:"odds_american,omitempty"`
-	GoalieName    string `json:"goalie_name,omitempty"`
+	GameID         int64 `json:"game_id"`
+	ProbabilityPct int   `json:"probability_pct"`
+	// UncalibratedPct is the prediction before the predictor's calibration scale (0 for older snapshots).
+	UncalibratedPct int    `json:"uncalibrated_pct,omitempty"`
+	OddsAmerican    string `json:"odds_american,omitempty"`
+	GoalieName      string `json:"goalie_name,omitempty"`
 }
 
 func main() {
@@ -80,12 +82,13 @@ func run(rdb *redis.Client) {
 	}
 
 	snapBytes, err := rdb.Get(ctx, predictionSnapshotPrefix+strconv.FormatInt(game.GameID, 10)).Bytes()
-	var predPct int
+	var predPct, uncalibratedPct int
 	var odds string
 	if err == nil {
 		var snap predictionSnapshot
 		_ = json.Unmarshal(snapBytes, &snap)
 		predPct = snap.ProbabilityPct
+		uncalibratedPct = snap.UncalibratedPct
 		odds = snap.OddsAmerican
 	}
 
@@ -138,30 +141,34 @@ func run(rdb *redis.Client) {
 
 	slog.Info("evaluator: publishing post-game summary", "game_id", game.GameID, "result", result, "brier_score", brierScore)
 
-	// Append to calibration log for predictor (predicted % vs actual 0/1) so it can tune scale.
-	if predPct > 0 {
-		scoredInt := 0
-		if scored {
-			scoredInt = 1
-		}
-		calEntry, _ := json.Marshal(struct {
-			GameID     int64   `json:"game_id"`
-			PredPct    int     `json:"pred_pct"`
-			Scored     int     `json:"scored"`
-			BrierScore float64 `json:"brier_score"`
-		}{GameID: game.GameID, PredPct: predPct, Scored: scoredInt, BrierScore: brierScore})
-		if err := rdb.LPush(ctx, calibrationLogKey, string(calEntry)).Err(); err == nil {
-			_ = rdb.LTrim(ctx, calibrationLogKey, 0, 99).Err()
-		}
-	}
-
-	payload, _ := json.Marshal(struct{ Message string `json:"message"` }{Message: msg})
+	payload, _ := json.Marshal(struct {
+		Message string `json:"message"`
+	}{Message: msg})
 	if err := rdb.XAdd(ctx, &redis.XAddArgs{
 		Stream: postGameStreamKey,
 		Values: map[string]any{"payload": string(payload)},
 	}).Err(); err != nil {
 		slog.Warn("evaluator: publish to post_game stream failed", "error", err)
 		return
+	}
+
+	// Append to calibration log for predictor (predicted % vs actual 0/1) so it can tune scale.
+	// Done after the publish succeeds: a failed publish is retried next run and would log the game twice.
+	if predPct > 0 {
+		scoredInt := 0
+		if scored {
+			scoredInt = 1
+		}
+		calEntry, _ := json.Marshal(struct {
+			GameID          int64   `json:"game_id"`
+			PredPct         int     `json:"pred_pct"`
+			UncalibratedPct int     `json:"uncalibrated_pct,omitempty"`
+			Scored          int     `json:"scored"`
+			BrierScore      float64 `json:"brier_score"`
+		}{GameID: game.GameID, PredPct: predPct, UncalibratedPct: uncalibratedPct, Scored: scoredInt, BrierScore: brierScore})
+		if err := rdb.LPush(ctx, calibrationLogKey, string(calEntry)).Err(); err == nil {
+			_ = rdb.LTrim(ctx, calibrationLogKey, 0, 99).Err()
+		}
 	}
 	// Only mark as reported after a successful publish so we send exactly once per game.
 	// No TTL: this guard must be durable. A TTL would expire during the offseason (when no
