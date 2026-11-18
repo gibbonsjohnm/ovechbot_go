@@ -93,11 +93,9 @@ func main() {
 				return
 			}
 		}
-		standings, errStand := reader.ReadStandings(ctx)
-		standingsOk := errStand == nil && len(standings) > 0
-		slog.Info("data loaded", "game_log_entries", len(gameLog), "standings_loaded", standingsOk)
+		slog.Info("data loaded", "game_log_entries", len(gameLog))
 
-		goalieSavePct := 0.0
+		var goalie model.Goalie
 		goalieName := ""
 		slog.Info("goalie: fetching opposing starter", "game_id", g.GameID)
 		if gi, err := goalieClient.OpposingStarter(ctx, g); err != nil {
@@ -106,15 +104,15 @@ func main() {
 			slog.Info("goalie: none found", "game_id", g.GameID, "hint", "boxscore not yet published or no goalies in lineup")
 		} else {
 			goalieName = gi.Name
-			goalieSavePct = gi.SavePct
-			if goalieSavePct > 0 {
-				slog.Info("goalie: found, applying strength factor", "game_id", g.GameID, "name", gi.Name, "save_pct", gi.SavePct)
+			goalie = model.Goalie{SavePct: gi.SavePct, ShotsAgainst: gi.ShotsAgainst}
+			if gi.SavePct > 0 && gi.ShotsAgainst > 0 {
+				slog.Info("goalie: found, applying strength factor", "game_id", g.GameID, "name", gi.Name, "save_pct", gi.SavePct, "shots_against", gi.ShotsAgainst)
 			} else {
-				slog.Info("goalie: found (no season SV%), using name only", "game_id", g.GameID, "name", gi.Name)
+				slog.Info("goalie: found (no season SV% or shot count), using name only", "game_id", g.GameID, "name", gi.Name)
 			}
 		}
 
-		pct := model.Predict(g, gameLog, standings, goalieSavePct)
+		pct := model.Predict(gameLog, goalie)
 		slog.Info("prediction", "probability_pct", pct, "game_id", g.GameID)
 
 		// Odds: use cache when possible; only call API when game is within 36h (500 credits/month limit).

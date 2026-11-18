@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"ovechbot_go/predictor/internal/cache"
-	"ovechbot_go/predictor/internal/schedule"
 )
 
 // loadFixtureGameLog reads testdata/game_log.json: the collector's real output for Ovechkin's 2024-25 to 2026-27
@@ -46,18 +45,5 @@ func TestFixtureGameLog_MeetsModelAssumptions(t *testing.T) {
 	}
 	if sumShots(log) == 0 {
 		t.Error("fixture has no shots; baselineGPGFrom would fall back to goals only")
-	}
-}
-
-func TestFixtureGameLog_RestFactorUsesLocalDates(t *testing.T) {
-	// Last game in the fixture is Tue 2026-11-17. Evening ET starts are already the next day in UTC.
-	log := loadFixtureGameLog(t)
-	backToBack := &schedule.Game{GameDate: "2026-11-18", StartTimeUTC: time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)}
-	if got := restFactor(backToBack, log); got != 0.92 {
-		t.Errorf("restFactor(next night, 7pm ET) = %v; want 0.92", got)
-	}
-	oneDayOff := &schedule.Game{GameDate: "2026-11-19", StartTimeUTC: time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)}
-	if got := restFactor(oneDayOff, log); got != 1.0 {
-		t.Errorf("restFactor(one day off, 7pm ET) = %v; want 1.0", got)
 	}
 }

@@ -63,17 +63,6 @@ func main() {
 				slog.Info("game log updated", "entries", len(allLog))
 			}
 		}
-
-		standings, err := nhlClient.Standings(ctx)
-		if err != nil {
-			slog.Warn("standings fetch failed", "error", err)
-			return
-		}
-		if err := c.WriteStandings(ctx, standings); err != nil {
-			slog.Warn("write standings failed", "error", err)
-		} else {
-			slog.Info("standings updated", "teams", len(standings))
-		}
 	}
 
 	run()

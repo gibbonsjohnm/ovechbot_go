@@ -12,14 +12,13 @@ import (
 )
 
 const (
-	GameLogKey   = "ovechkin:game_log"
-	StandingsKey = "standings:now"
-	minTTL       = 1 * time.Hour
+	GameLogKey = "ovechkin:game_log"
+	minTTL     = 1 * time.Hour
 )
 
 // TTLFor returns how long written keys live when the collector refreshes every interval.
 // It is twice the interval so one failed run doesn't empty the cache; a TTL shorter than the interval
-// once left standings missing ~5 of every 6 hours.
+// once left the predictor without data ~5 of every 6 hours.
 func TTLFor(interval time.Duration) time.Duration {
 	if ttl := 2 * interval; ttl > minTTL {
 		return ttl
@@ -27,7 +26,7 @@ func TTLFor(interval time.Duration) time.Duration {
 	return minTTL
 }
 
-// Cache writes game log and standings to Redis for the predictor.
+// Cache writes the game log to Redis for the predictor.
 type Cache struct {
 	client *redis.Client
 	ttl    time.Duration
@@ -45,13 +44,4 @@ func (c *Cache) WriteGameLog(ctx context.Context, entries []nhl.GameLogEntry) er
 		return fmt.Errorf("marshal game log: %w", err)
 	}
 	return c.client.Set(ctx, GameLogKey, string(b), c.ttl).Err()
-}
-
-// WriteStandings stores standings as JSON (map teamAbbrev -> {gamesPlayed, goalAgainst, goalFor}).
-func (c *Cache) WriteStandings(ctx context.Context, standings map[string]nhl.StandingsTeam) error {
-	b, err := json.Marshal(standings)
-	if err != nil {
-		return fmt.Errorf("marshal standings: %w", err)
-	}
-	return c.client.Set(ctx, StandingsKey, string(b), c.ttl).Err()
 }
