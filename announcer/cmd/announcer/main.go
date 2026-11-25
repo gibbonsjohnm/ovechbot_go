@@ -66,9 +66,9 @@ func main() {
 	if discordToken != "" {
 		var err error
 		bot, err = discord.NewBot(discord.Config{
-			Token:               discordToken,
-			AnnounceChannelID:   discordChannelID,
-			OvechkinImageURL:    ovechkinImageURL,
+			Token:             discordToken,
+			AnnounceChannelID: discordChannelID,
+			OvechkinImageURL:  ovechkinImageURL,
 		})
 		if err != nil {
 			slog.Error("discord bot create failed", "error", err)
@@ -255,7 +255,7 @@ func deferRespond(s *discordgo.Session, i *discordgo.InteractionCreate, fn func(
 	content := fn()
 	_, err = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 		Content:         content,
-		AllowedMentions:  &discordgo.MessageAllowedMentions{},
+		AllowedMentions: &discordgo.MessageAllowedMentions{},
 	})
 	if err != nil {
 		slog.Warn("discord followup failed", "error", err)

@@ -259,8 +259,12 @@ func (c *Client) NextCapitalsGame(ctx context.Context) (*NextCapitalsGame, error
 			StartTimeUTC string    `json:"startTimeUTC"`
 			GameState    string    `json:"gameState"`
 			Venue        venueJSON `json:"venue"`
-			HomeTeam     struct{ Abbrev string `json:"abbrev"` } `json:"homeTeam"`
-			AwayTeam     struct{ Abbrev string `json:"abbrev"` } `json:"awayTeam"`
+			HomeTeam     struct {
+				Abbrev string `json:"abbrev"`
+			} `json:"homeTeam"`
+			AwayTeam struct {
+				Abbrev string `json:"abbrev"`
+			} `json:"awayTeam"`
 		} `json:"games"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&sched); err != nil {
@@ -299,10 +303,10 @@ func (c *Client) NextCapitalsGame(ctx context.Context) (*NextCapitalsGame, error
 
 // LastGoalGame holds info about the most recent game in which Ovechkin scored.
 type LastGoalGame struct {
-	GameDate   string // e.g. "2026-02-05"
-	Opponent   string // e.g. "NSH"
+	GameDate     string // e.g. "2026-02-05"
+	Opponent     string // e.g. "NSH"
 	OpponentName string // e.g. "Predators"
-	GoalieName string // opposing starter, e.g. "J. Annunen"
+	GoalieName   string // opposing starter, e.g. "J. Annunen"
 }
 
 // LastGoalGame fetches the most recent game (from last 5) where Ovechkin scored, plus opponent and goalie from boxscore.
@@ -324,10 +328,10 @@ func (c *Client) LastGoalGame(ctx context.Context) (*LastGoalGame, error) {
 	}
 	var landing struct {
 		Last5Games []struct {
-			GameDate        string `json:"gameDate"`
-			GameID          int    `json:"gameId"`
-			OpponentAbbrev  string `json:"opponentAbbrev"`
-			Goals           int    `json:"goals"`
+			GameDate       string `json:"gameDate"`
+			GameID         int    `json:"gameId"`
+			OpponentAbbrev string `json:"opponentAbbrev"`
+			Goals          int    `json:"goals"`
 		} `json:"last5Games"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&landing); err != nil {
@@ -376,14 +380,18 @@ func (c *Client) LastGoalGame(ctx context.Context) (*LastGoalGame, error) {
 		PlayerByGameStats struct {
 			AwayTeam struct {
 				Goalies []struct {
-					Name    struct { Default string `json:"default"` } `json:"name"`
-					Starter bool   `json:"starter"`
+					Name struct {
+						Default string `json:"default"`
+					} `json:"name"`
+					Starter bool `json:"starter"`
 				} `json:"goalies"`
 			} `json:"awayTeam"`
 			HomeTeam struct {
 				Goalies []struct {
-					Name    struct { Default string `json:"default"` } `json:"name"`
-					Starter bool   `json:"starter"`
+					Name struct {
+						Default string `json:"default"`
+					} `json:"name"`
+					Starter bool `json:"starter"`
 				} `json:"goalies"`
 			} `json:"homeTeam"`
 		} `json:"playerByGameStats"`

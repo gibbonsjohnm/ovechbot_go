@@ -20,8 +20,9 @@ const (
 
 // Info is the opposing starter's name and season save percentage (0–1). When SavePct is 0, factor should be 1.0.
 type Info struct {
-	Name    string  // e.g. "S. Ersson"
-	SavePct float64 // season save percentage, e.g. 0.905
+	Name         string  // e.g. "S. Ersson"
+	SavePct      float64 // season save percentage, e.g. 0.905
+	ShotsAgainst int     // shots faced behind SavePct; 0 if unknown
 }
 
 // Client fetches opposing starting goalie and season SV% from the NHL API.
@@ -44,11 +45,11 @@ func (c *Client) OpposingStarter(ctx context.Context, g *schedule.Game) (*Info, 
 	if name != "" {
 		playerID, displayName := c.resolveGoalieByName(ctx, g.Opponent(), name)
 		if playerID != 0 {
-			savePct, _ := c.playerSavePct(ctx, playerID)
+			savePct, shots, _ := c.playerSaveStats(ctx, playerID)
 			if displayName == "" {
 				displayName = name
 			}
-			return &Info{Name: displayName, SavePct: savePct}, nil
+			return &Info{Name: displayName, SavePct: savePct, ShotsAgainst: shots}, nil
 		}
 		slog.Warn("goalie: PuckPedia name not on opponent roster, discarding", "name", name, "opponent", g.Opponent())
 	}
@@ -93,16 +94,20 @@ func (c *Client) opposingStarterFromBoxscore(ctx context.Context, g *schedule.Ga
 		PlayerByGameStats struct {
 			AwayTeam struct {
 				Goalies []struct {
-					PlayerID int    `json:"playerId"`
-					Name     struct { Default string `json:"default"` } `json:"name"`
-					Starter  bool   `json:"starter"`
+					PlayerID int `json:"playerId"`
+					Name     struct {
+						Default string `json:"default"`
+					} `json:"name"`
+					Starter bool `json:"starter"`
 				} `json:"goalies"`
 			} `json:"awayTeam"`
 			HomeTeam struct {
 				Goalies []struct {
-					PlayerID int    `json:"playerId"`
-					Name     struct { Default string `json:"default"` } `json:"name"`
-					Starter  bool   `json:"starter"`
+					PlayerID int `json:"playerId"`
+					Name     struct {
+						Default string `json:"default"`
+					} `json:"name"`
+					Starter bool `json:"starter"`
 				} `json:"goalies"`
 			} `json:"homeTeam"`
 		} `json:"playerByGameStats"`
@@ -143,11 +148,11 @@ func (c *Client) opposingStarterFromBoxscore(ctx context.Context, g *schedule.Ga
 	if goaliePlayerID == 0 {
 		return nil, nil
 	}
-	savePct, err := c.playerSavePct(ctx, goaliePlayerID)
+	savePct, shots, err := c.playerSaveStats(ctx, goaliePlayerID)
 	if err != nil || savePct <= 0 {
 		return &Info{Name: goalieName, SavePct: 0}, nil
 	}
-	return &Info{Name: goalieName, SavePct: savePct}, nil
+	return &Info{Name: goalieName, SavePct: savePct, ShotsAgainst: shots}, nil
 }
 
 // resolveGoalieByName fetches the opponent's roster from the NHL API and returns the goalie's player ID and display name (e.g. "D. Vladar") that matches the given full name (e.g. "Dan Vladar").
@@ -203,20 +208,22 @@ func (c *Client) resolveGoalieByName(ctx context.Context, teamAbbrev, fullName s
 	return 0, ""
 }
 
-func (c *Client) playerSavePct(ctx context.Context, playerID int) (float64, error) {
+// playerSaveStats returns the goalie's most recent regular-season save percentage and the shots faced behind it.
+// seasonTotals carries the shot count; featuredStats (current season, no shot count) is the fallback, with shots 0.
+func (c *Client) playerSaveStats(ctx context.Context, playerID int) (savePct float64, shotsAgainst int, err error) {
 	url := fmt.Sprintf(playerLandingFmt, playerID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("player landing status %d", resp.StatusCode)
+		return 0, 0, fmt.Errorf("player landing status %d", resp.StatusCode)
 	}
 	var landing struct {
 		FeaturedStats *struct {
@@ -227,30 +234,33 @@ func (c *Client) playerSavePct(ctx context.Context, playerID int) (float64, erro
 			} `json:"regularSeason"`
 		} `json:"featuredStats"`
 		SeasonTotals []struct {
-			Season     int     `json:"season"`
-			GameTypeID int     `json:"gameTypeId"`
-			SavePctg   float64 `json:"savePctg"`
+			Season       int     `json:"season"`
+			GameTypeID   int     `json:"gameTypeId"`
+			SavePctg     float64 `json:"savePctg"`
+			ShotsAgainst int     `json:"shotsAgainst"`
 		} `json:"seasonTotals"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&landing); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	if landing.FeaturedStats != nil && landing.FeaturedStats.RegularSeason != nil && landing.FeaturedStats.RegularSeason.SubSeason != nil {
-		if pct := landing.FeaturedStats.RegularSeason.SubSeason.SavePctg; pct > 0 {
-			return pct, nil
-		}
-	}
-	// featuredStats is absent for backup/inactive goalies; fall back to the most recent regular-season entry.
-	var bestSeason int
+	// Most recent regular-season entry, which has both save % and shots faced.
+	var bestSeason, bestShots int
 	var bestPct float64
 	for _, s := range landing.SeasonTotals {
 		if s.GameTypeID != 2 { // 2 = regular season
 			continue
 		}
 		if s.Season > bestSeason && s.SavePctg > 0 {
-			bestSeason = s.Season
-			bestPct = s.SavePctg
+			bestSeason, bestPct, bestShots = s.Season, s.SavePctg, s.ShotsAgainst
 		}
 	}
-	return bestPct, nil
+	if bestShots > 0 {
+		return bestPct, bestShots, nil
+	}
+	if landing.FeaturedStats != nil && landing.FeaturedStats.RegularSeason != nil && landing.FeaturedStats.RegularSeason.SubSeason != nil {
+		if pct := landing.FeaturedStats.RegularSeason.SubSeason.SavePctg; pct > 0 {
+			return pct, 0, nil
+		}
+	}
+	return bestPct, 0, nil
 }

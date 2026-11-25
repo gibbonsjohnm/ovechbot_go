@@ -4,21 +4,6 @@ import (
 	"ovechbot_go/predictor/internal/cache"
 )
 
-func leagueAvgGAFromStandings(standings map[string]cache.StandingsTeam) float64 {
-	if len(standings) == 0 {
-		return 3.0
-	}
-	var sumGA, sumGP int
-	for _, t := range standings {
-		sumGA += t.GoalAgainst
-		sumGP += t.GamesPlayed
-	}
-	if sumGP == 0 {
-		return 3.0
-	}
-	return float64(sumGA) / float64(sumGP)
-}
-
 // baselineGPGFrom returns Ovi's expected goals per game after the given (oldest-first) log, as shots per game times
 // shooting percentage, each from the current season shrunk toward the last maxGames games before it.
 // Shot volume settles fast, so it gets a light prior (baselineShotsPriorGames); shooting % is noisy, so its prior is

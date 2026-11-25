@@ -3,9 +3,43 @@ name: Build and Push Images
 on:
   push:
     branches: [main]
+  pull_request:
 
 jobs:
+  # Runs on every PR and before every image build, so a failing test never ships.
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [announcer, collector, evaluator, ingestor, predictor]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21" # matches the golang:1.21 builder in each Dockerfile
+          cache-dependency-path: ${{ matrix.service }}/go.sum
+
+      - name: gofmt
+        working-directory: ${{ matrix.service }}
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Run gofmt -w on:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        working-directory: ${{ matrix.service }}
+        run: go vet ./...
+
+      - name: go test
+        working-directory: ${{ matrix.service }}
+        run: go test -race ./...
+
   build:
+    needs: test
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     strategy:
       matrix:

@@ -230,7 +230,7 @@ func TestResolveGoalieByName_NonOK(t *testing.T) {
 	}
 }
 
-// ---- playerSavePct tests ----
+// ---- playerSaveStats tests ----
 
 func TestPlayerSavePct_Found(t *testing.T) {
 	landingJSON := `{"featuredStats": {"regularSeason": {"subSeason": {"savePctg": 0.923}}}}`
@@ -241,12 +241,34 @@ func TestPlayerSavePct_Found(t *testing.T) {
 	defer server.Close()
 
 	c := testClient(server)
-	pct, err := c.playerSavePct(context.Background(), 8480945)
+	pct, _, err := c.playerSaveStats(context.Background(), 8480945)
 	if err != nil {
-		t.Fatalf("playerSavePct: %v", err)
+		t.Fatalf("playerSaveStats: %v", err)
 	}
 	if pct != 0.923 {
 		t.Errorf("savePct = %v; want 0.923", pct)
+	}
+}
+
+func TestPlayerSaveStats_ShotsFromSeasonTotals(t *testing.T) {
+	// Shape of the real landing response (Vasilevskiy, Nov 2026): featuredStats has no shot count, seasonTotals does.
+	landingJSON := `{"featuredStats": {"season": 20262027, "regularSeason": {"subSeason": {"gamesPlayed": 16, "savePctg": 0.891139}}},
+		"seasonTotals": [
+			{"season": 20252026, "gameTypeId": 2, "shotsAgainst": 1500, "savePctg": 0.905},
+			{"season": 20252026, "gameTypeId": 3, "shotsAgainst": 300, "savePctg": 0.920},
+			{"season": 20262027, "gameTypeId": 2, "shotsAgainst": 395, "savePctg": 0.891139}
+		]}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(landingJSON))
+	}))
+	defer server.Close()
+
+	pct, shots, err := testClient(server).playerSaveStats(context.Background(), 8476883)
+	if err != nil {
+		t.Fatalf("playerSaveStats: %v", err)
+	}
+	if pct != 0.891139 || shots != 395 {
+		t.Errorf("playerSaveStats = (%v, %d); want (0.891139, 395) from the current regular season", pct, shots)
 	}
 }
 
@@ -258,9 +280,9 @@ func TestPlayerSavePct_MissingNestedStats(t *testing.T) {
 	defer server.Close()
 
 	c := testClient(server)
-	pct, err := c.playerSavePct(context.Background(), 8480945)
+	pct, _, err := c.playerSaveStats(context.Background(), 8480945)
 	if err != nil {
-		t.Fatalf("playerSavePct: %v", err)
+		t.Fatalf("playerSaveStats: %v", err)
 	}
 	if pct != 0 {
 		t.Errorf("savePct = %v; want 0 when stats missing", pct)
@@ -274,7 +296,7 @@ func TestPlayerSavePct_NonOK(t *testing.T) {
 	defer server.Close()
 
 	c := testClient(server)
-	_, err := c.playerSavePct(context.Background(), 8480945)
+	_, _, err := c.playerSaveStats(context.Background(), 8480945)
 	if err == nil {
 		t.Error("expected error for non-200 status, got nil")
 	}

@@ -116,35 +116,6 @@ func TestBaselineGPGFrom_FewerShotsLowersBaseline(t *testing.T) {
 	}
 }
 
-func TestLeagueAvgGAFromStandings_Empty(t *testing.T) {
-	got := leagueAvgGAFromStandings(nil)
-	if got != 3.0 {
-		t.Errorf("leagueAvgGAFromStandings(nil) = %v; want 3.0", got)
-	}
-}
-
-func TestLeagueAvgGAFromStandings_ZeroGP(t *testing.T) {
-	standings := map[string]cache.StandingsTeam{
-		"TST": {GoalAgainst: 100, GamesPlayed: 0},
-	}
-	got := leagueAvgGAFromStandings(standings)
-	if got != 3.0 {
-		t.Errorf("leagueAvgGAFromStandings(zero GP) = %v; want 3.0", got)
-	}
-}
-
-func TestLeagueAvgGAFromStandings_Normal(t *testing.T) {
-	standings := map[string]cache.StandingsTeam{
-		"A": {GoalAgainst: 300, GamesPlayed: 100},
-		"B": {GoalAgainst: 200, GamesPlayed: 100},
-	}
-	got := leagueAvgGAFromStandings(standings)
-	// (300+200)/(100+100) = 2.5
-	if got != 2.5 {
-		t.Errorf("leagueAvgGAFromStandings = %v; want 2.5", got)
-	}
-}
-
 // makeGameLog builds n game log entries with alternating opponent abbrevs and a roughly
 // constant scoring rate (~40% of games have 1 goal). Oldest game is at index 0.
 func makeGameLog(n int) []cache.GameLogEntry {
@@ -168,14 +139,4 @@ func makeGameLog(n int) []cache.GameLogEntry {
 		}
 	}
 	return log
-}
-
-func makeStandings() map[string]cache.StandingsTeam {
-	return map[string]cache.StandingsTeam{
-		"PHI": {GamesPlayed: 60, GoalAgainst: 180, HomeGamesPlayed: 30, HomeGoalsAgainst: 90, RoadGamesPlayed: 30, RoadGoalsAgainst: 90},
-		"NYR": {GamesPlayed: 60, GoalAgainst: 150, HomeGamesPlayed: 30, HomeGoalsAgainst: 75, RoadGamesPlayed: 30, RoadGoalsAgainst: 75},
-		"PIT": {GamesPlayed: 60, GoalAgainst: 210, HomeGamesPlayed: 30, HomeGoalsAgainst: 105, RoadGamesPlayed: 30, RoadGoalsAgainst: 105},
-		"BOS": {GamesPlayed: 60, GoalAgainst: 160, HomeGamesPlayed: 30, HomeGoalsAgainst: 80, RoadGamesPlayed: 30, RoadGoalsAgainst: 80},
-		"CBJ": {GamesPlayed: 60, GoalAgainst: 240, HomeGamesPlayed: 30, HomeGoalsAgainst: 120, RoadGamesPlayed: 30, RoadGoalsAgainst: 120},
-	}
 }

@@ -26,3 +26,7 @@ Thumbs.db
 
 # Secrets (Docker Compose reads .env from project root)
 .env
+
+# Backtest downloads (scripts/backtest/README.md)
+/data/
+__pycache__/
